@@ -25,7 +25,7 @@ export class ReviewStore {
   return new Promise((resolve,reject)=>{
    const tx=this.db.transaction(['reviews','history'],'readwrite'),store=tx.objectStore('reviews');const result={inserted:0,replaced:0,skipped:0};
    for(const r of records){const req=store.get([r.dataset_id,r.expert_id,r.photo_id]);req.onsuccess=()=>{const old=req.result;
-    if(old&&(!replaceNewer||String(old.updated_at||'')>=String(r.updated_at||''))){result.skipped++;return;}
+    if(old&&(!replaceNewer||Date.parse(old.updated_at||old.created_at)>=Date.parse(r.updated_at||r.created_at))){result.skipped++;return;}
     const next=structuredClone(r);next.revision=(old?.revision||0)+1;
     if(old){tx.objectStore('history').add({record:old,saved_at:new Date().toISOString()});result.replaced++;}else result.inserted++;
     store.put(next);

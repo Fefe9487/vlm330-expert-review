@@ -46,6 +46,24 @@ def split_refs(text:str,details:list)->tuple[list,list]:
    'official_url':'https://law.moj.gov.tw/','official_link_is_specific':False,'unparsed':True})
   unresolved.append(remainder)
  return refs,unresolved
+
+def assign_photos(index:list)->dict:
+ """Disjoint groups, balanced by domain and summary hazard count; frozen and deterministic."""
+ experts=[f'A{i:02d}' for i in range(1,12)]
+ groups={e:[] for e in experts};loads={e:0 for e in experts}
+ # 219 construction + 111 manufacturing: ten 20/10 groups and one 19/11.
+ for domain,capacities in [('營造',[20]*10+[19]),('製造',[10]*10+[11])]:
+  counts={e:0 for e in experts}
+  candidates=sorted((p for p in index if p['domain']==domain),key=lambda p:(-p['hazard_count'],p['id']))
+  for photo in candidates:
+   eligible=[e for i,e in enumerate(experts) if counts[e]<capacities[i]]
+   chosen=min(eligible,key=lambda e:(loads[e],counts[e],e))
+   groups[chosen].append(photo['id']);loads[chosen]+=photo['hazard_count'];counts[chosen]+=1
+ order={p['id']:i for i,p in enumerate(index)}
+ for ids in groups.values():ids.sort(key=order.get)
+ assert all(len(ids)==30 for ids in groups.values())
+ assert len(set(sum(groups.values(),[])))==len(index)==330
+ return groups
 def build(workbook:Path,images:Path,out:Path)->dict:
  wb=openpyxl.load_workbook(workbook,read_only=True,data_only=True)
  source_rows=list(wb.worksheets[0].iter_rows(values_only=True))
@@ -87,9 +105,12 @@ def build(workbook:Path,images:Path,out:Path)->dict:
    'data_file':f'data/cases/{photo_id}.json','hazard_count':len(hazards),'hazard_types':[h['type'] for h in hazards],
    'case_count':sum(len(h['cases']) for h in hazards)})
  index.sort(key=lambda r:(r['filename'][0],int(re.search(r'\d+',r['filename']).group()),r['filename']))
- manifest={'schema_version':1,'id':dataset_id,'title':'照片危害辨識專家審閱','test_date':'2026-10-08',
+ assignments=assign_photos(index)
+ assignment_version='disjoint30-'+hashlib.sha256(json.dumps(assignments,sort_keys=True,separators=(',',':')).encode()).hexdigest()[:12]
+ manifest={'schema_version':2,'id':dataset_id,'title':'照片危害辨識專家審閱','test_date':'2026-10-08',
   'source_workbook':workbook.name,'source_workbook_sha256':source_hash,'fingerprint':fingerprint,
-  'expert_ids':[f'A{i:02d}' for i in range(1,12)],'assignment':'all_photos_per_expert',
+  'expert_ids':[f'A{i:02d}' for i in range(1,12)],'assignment':'disjoint_30_per_expert',
+  'assignment_version':assignment_version,'assignments':assignments,'photos_per_expert':30,
   'photo_count':len(index),'domains':dict(Counter(r['domain'] for r in index)),
   'hazard_count':sum(r['hazard_count'] for r in index),'case_reference_count':sum(r['case_count'] for r in index),
   'hazard_types':HAZARD_TYPES,'law_baseline_date':'2026-10-08','case_sources':'unconfirmed',

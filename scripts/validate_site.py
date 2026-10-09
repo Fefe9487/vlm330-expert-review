@@ -6,6 +6,11 @@ m=json.loads((root/'data/manifest.json').read_text(encoding='utf-8'))
 assert m['photo_count']==len(m['photos'])==330
 assert len(m['expert_ids'])==11 and len(set(m['expert_ids']))==11
 assert len({p['id'] for p in m['photos']})==330
+assigned=sum(m['assignments'].values(),[])
+assert all(len(m['assignments'][id])==30 for id in m['expert_ids'])
+assert len(assigned)==len(set(assigned))==330
+assert set(assigned)=={p['id'] for p in m['photos']}
+assert m['assignment']=='disjoint_30_per_expert'
 hazards=cases=laws=0
 for entry in m['photos']:
  p=json.loads((root/entry['data_file']).read_text(encoding='utf-8'))
