@@ -1,5 +1,6 @@
 import {emptyProblemItems,validateProblemItems,problemSummary,PROBLEM_FIELDS} from './problem-items.js';
-export const APP_VERSION='2.1.0';
+import {MISSED_HAZARD_TAXONOMY,validateMissedHazards,missedEntries,missedCsvValues} from './missed-hazards.js';
+export const APP_VERSION='2.2.0';
 export const VERDICTS=['appropriate','partial','inappropriate','insufficient'];
 export const VERDICT_LABELS={appropriate:'適當',partial:'部分適當',inappropriate:'不適當',insufficient:'資訊不足',not_provided:'未提供案例'};
 export const COMPLETENESS_LABELS={no_misses:'未發現漏報',has_misses:'有漏報',insufficient:'無法判斷'};
@@ -12,7 +13,7 @@ export function validateAssignments(m){
  if(seen.size!==330||known.size!==330)throw new Error('照片分組未涵蓋全部 330 張。');return m;
 }
 export function assignedPhotos(m,expert){const byId=new Map(m.photos.map(p=>[p.id,p]));return (m.assignments[expert]||[]).map(id=>byId.get(id));}
-export function createReview(photo,expert,m){return {schema_version:2,dataset_id:photo.dataset_id,assignment_version:m.assignment_version,expert_id:expert,photo_id:photo.id,image_sha256:photo.image_sha256,status:'draft',revision:0,created_at:new Date().toISOString(),updated_at:null,submitted_at:null,hazard_accuracy:'',completeness:'',law_appropriateness:'',case_appropriateness:photo.hazards.some(h=>h.cases.length)?'':'not_provided',problem_items:emptyProblemItems(),note:''};}
+export function createReview(photo,expert,m){return {schema_version:2,dataset_id:photo.dataset_id,assignment_version:m.assignment_version,expert_id:expert,photo_id:photo.id,image_sha256:photo.image_sha256,status:'draft',revision:0,created_at:new Date().toISOString(),updated_at:null,submitted_at:null,hazard_accuracy:'',completeness:'',law_appropriateness:'',case_appropriateness:photo.hazards.some(h=>h.cases.length)?'':'not_provided',problem_items:emptyProblemItems(),missed_hazard_taxonomy:MISSED_HAZARD_TAXONOMY,missed_hazards:[],note:''};}
 export function validateReview(r,p,m){
  const errors=[],add=(path,message)=>errors.push({path,message});
  if(!r||r.schema_version!==2||r.dataset_id!==p.dataset_id||r.photo_id!==p.id||r.image_sha256!==p.image_sha256){add('identity','評分與照片版本不一致。');return errors;}
@@ -23,9 +24,10 @@ export function validateReview(r,p,m){
  if(p.hazards.some(h=>h.cases.length)){if(!VERDICTS.includes(r.case_appropriateness))add('case_appropriateness','請整體評估職災案例。');}
  else if(r.case_appropriateness!=='not_provided')add('case_appropriateness','AI 未提供案例，請重新載入這張照片。');
  errors.push(...validateProblemItems(r,p));
+ errors.push(...validateMissedHazards(r,true));
  if(typeof r.note!=='string'||r.note.length>5000)add('note','補充意見請控制在 5,000 字內。');return errors;
 }
-export function isTouched(r){return Boolean(r.hazard_accuracy||r.completeness||r.law_appropriateness||(r.case_appropriateness&&r.case_appropriateness!=='not_provided')||r.note||PROBLEM_FIELDS.some(field=>r.problem_items?.[field]?.length));}
+export function isTouched(r){return Boolean(r.hazard_accuracy||r.completeness||r.law_appropriateness||(r.case_appropriateness&&r.case_appropriateness!=='not_provided')||r.note||PROBLEM_FIELDS.some(field=>r.problem_items?.[field]?.length)||missedEntries(r).length);}
 export function recordKey(r){return `${r.dataset_id}|${r.expert_id}|${r.photo_id}`;}
 export function makeBundle(m,expert,records,mode='production'){
  const ids=m.assignments[expert];return {format:'vlm330-expert-review',schema_version:2,app_version:APP_VERSION,mode,dataset_id:m.id,dataset_fingerprint:m.fingerprint,assignment_version:m.assignment_version,assigned_photo_ids:[...ids],expert_id:expert,exported_at:new Date().toISOString(),photo_count:ids.length,dataset_photo_count:m.photo_count,records:records.filter(r=>r.expert_id===expert&&ids.includes(r.photo_id))};
@@ -50,12 +52,13 @@ export function validateBundle(b,m,mode='production'){
   if((p.case_count>0&&r.case_appropriateness==='not_provided')||(p.case_count===0&&r.case_appropriateness!=='not_provided'))throw new Error('備份的案例免評狀態與原始報告不符。');
   if(r.completeness!==''&&!Object.hasOwn(COMPLETENESS_LABELS,r.completeness))throw new Error('備份的漏報選項不正確。');
   if(typeof r.note!=='string'||r.note.length>5000)throw new Error('備份的補充說明格式不正確。');
+  const missedErrors=validateMissedHazards(r,r.status==='submitted');if(missedErrors.length)throw new Error(missedErrors[0].message);
   if(r.problem_items!==undefined){if(!r.problem_items||typeof r.problem_items!=='object'||Array.isArray(r.problem_items)||Object.keys(r.problem_items).some(key=>!PROBLEM_FIELDS.includes(key)))throw new Error('備份的問題項目格式不正確。');for(const field of PROBLEM_FIELDS){const ids=r.problem_items[field]??[];if(!Array.isArray(ids)||ids.length>500||ids.some(id=>typeof id!=='string'||id.length>80)||new Set(ids).size!==ids.length)throw new Error('備份的問題項目格式不正確。');}}
  }return b;
 }
 export function csvCell(value){let s=String(value??'');if(/^\s*[=+\-@]|^[\t\r\n]/.test(s))s="'"+s;return `"${s.replaceAll('"','""')}"`;}
 export function csvText(rows){return '\ufeff'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');}
-export function flattenReviews(records,photos){return [['專家代碼','照片','產業','狀態','危害辨識','危害完整性','引用法規','職災案例','補充意見','更新時間','分組版本','有問題的危害','有問題的法規','有問題的案例'],...records.filter(r=>photos.has(r.photo_id)).map(r=>[r.expert_id,photos.get(r.photo_id).filename,photos.get(r.photo_id).domain,r.status==='submitted'?'已提交':'草稿',ACCURACY_LABELS[r.hazard_accuracy]||'',COMPLETENESS_LABELS[r.completeness]||'',VERDICT_LABELS[r.law_appropriateness]||'',VERDICT_LABELS[r.case_appropriateness]||'',r.note,r.updated_at||'',r.assignment_version,...PROBLEM_FIELDS.map(field=>problemSummary(r,photos.get(r.photo_id),field))])];}
+export function flattenReviews(records,photos){return [['專家代碼','照片','產業','狀態','危害辨識','危害完整性','引用法規','職災案例','補充意見','更新時間','分組版本','有問題的危害','有問題的法規','有問題的案例','漏報項目數','漏報危害類型','漏報情境說明'],...records.filter(r=>photos.has(r.photo_id)).map(r=>[r.expert_id,photos.get(r.photo_id).filename,photos.get(r.photo_id).domain,r.status==='submitted'?'已提交':'草稿',ACCURACY_LABELS[r.hazard_accuracy]||'',COMPLETENESS_LABELS[r.completeness]||'',VERDICT_LABELS[r.law_appropriateness]||'',VERDICT_LABELS[r.case_appropriateness]||'',r.note,r.updated_at||'',r.assignment_version,...PROBLEM_FIELDS.map(field=>problemSummary(r,photos.get(r.photo_id),field)),...missedCsvValues(r)])];}
 export function summarizeRecords(m,records){
  const stats=m.expert_ids.map(id=>({expert_id:id,total:m.assignments[id].length,submitted:0,draft:0,missing_photos:0,verdicts:Object.fromEntries(VERDICTS.map(v=>[v,0]))})),byId=new Map(stats.map(s=>[s.expert_id,s])),seen=new Set();
  for(const r of records){const s=byId.get(r.expert_id),key=recordKey(r);if(!s||r.schema_version!==2||r.assignment_version!==m.assignment_version||!m.assignments[r.expert_id].includes(r.photo_id)||seen.has(key))continue;seen.add(key);

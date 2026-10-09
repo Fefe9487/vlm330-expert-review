@@ -3,6 +3,7 @@ import * as legacyModel from './model.js';
 import {ReviewStore} from './storage.js';
 import {escapeHTML as e,reportHTML} from './content.js';
 import {problemPickerHTML,setOverallVerdict,toggleProblem,validateProblemItems,selectedProblems} from './problem-items.js';
+import {missedEditorHTML,addMissedHazard,updateMissedHazard,removeMissedHazard} from './missed-hazards.js';
 
 const root=document.querySelector('#app'),params=new URLSearchParams(location.search),qa=params.get('qa')==='1',mode=qa?'qa':'production';
 // The previous per-item answers stay in their original database and can be exported.
@@ -22,7 +23,8 @@ function welcome(){
  state.expert=null;
  shell(`<main class="content-page" id="main"><section class="welcome content-card"><h1>選擇你的專家代碼</h1><p>11 位專家各審閱 30 張照片。請對照照片與 AI 內容，完成四項整體判斷；補充意見可留空。</p><div class="welcome-facts"><span><strong>30</strong> 張／人</span><span><strong>330</strong> 張共計</span><span><strong>4</strong> 項判斷／張</span></div><div class="expert-grid">${state.manifest.expert_ids.map(id=>`<button data-expert="${id}" class="${state.chosen===id?'selected':''}" aria-pressed="${state.chosen===id}">${id}</button>`).join('')}</div><button class="primary" data-action="start" ${state.chosen?'':'disabled'}>開始／繼續審閱</button><p class="muted">請使用分配給你的代碼。換裝置時可匯入自己的 JSON 備份。</p><button class="text-button" data-action="restore">匯入評分備份</button></section></main>`);
 }
-function radioGroup(key,title,labels){return `<fieldset class="score-group" id="score-${key}"><legend>${title}</legend><div class="radio-row">${Object.entries(labels).map(([value,label])=>`<label class="rating-option"><input type="radio" name="${key}" data-field="${key}" value="${value}" ${state.review[key]===value?'checked':''}>${e(label)}</label>`).join('')}</div><div id="problems-${key}">${problemPickerHTML(state.photo,state.review,key)}</div></fieldset>`;}
+function radioGroup(key,title,labels){return `<fieldset class="score-group" id="score-${key}"><legend>${title}</legend><div class="radio-row">${Object.entries(labels).map(([value,label])=>`<label class="rating-option"><input type="radio" name="${key}" data-field="${key}" value="${value}" ${state.review[key]===value?'checked':''}>${e(label)}</label>`).join('')}</div><div id="problems-${key}">${key==='completeness'?missedEditorHTML(state.review):problemPickerHTML(state.photo,state.review,key)}</div></fieldset>`;}
+function renderMissedEditor(){const container=document.querySelector('#problems-completeness');if(container)container.innerHTML=missedEditorHTML(state.review);}
 function scoreHTML(){return `<section class="score-card" id="score-card" aria-labelledby="score-title"><div class="score-heading"><h2 id="score-title">本張照片的整體判斷</h2><span id="score-save-state" class="muted" role="status"></span><span class="chip ${state.review.status==='submitted'?'green':''}">${state.review.status==='submitted'?'已提交':'草稿'}</span></div><p class="score-hint">看完右側內容後選擇即可。</p><div id="validation-errors" role="alert" hidden></div>
  ${radioGroup('hazard_accuracy','1. AI 辨識的危害是否正確？',ACCURACY_LABELS)}
  ${radioGroup('completeness','2. 是否已找出所有危害？',COMPLETENESS_LABELS)}
@@ -36,7 +38,7 @@ function renderReview(){
  <div class="workspace"><section class="viewer-pane" aria-label="照片與整體判斷"><div class="photo-heading"><h1>${e(p.filename)}</h1><span class="chip">${e(p.domain)} · 第 ${index+1} / 30 張</span></div><button class="photo-stage" id="photo-stage" data-action="zoom" aria-label="放大 ${e(p.filename)}"><img id="main-photo" src="${path(p.image)}" alt="${e(p.filename)} 現場照片"></button><div id="image-failure" class="image-failure" hidden><span>照片未能載入。</span><button data-action="retry-image">重新載入照片</button></div><div class="viewer-tools"><span class="muted">點照片可放大、拖曳檢視</span><button class="text-button" data-action="zoom">放大照片</button></div>${scoreHTML()}</section>
  <section class="report-pane" id="report-pane" aria-label="AI 辨識內容"><div class="report-heading"><h2>AI 辨識結果</h2><span>${p.hazards.length} 項危害 · ${p.vlm.length} 個原始情境</span></div><nav class="hazard-nav" aria-label="跳至危害內容">${p.hazards.map(h=>`<a href="#hazard-${h.id}">${e(h.type)}</a>`).join('')}</nav>${reportHTML(p)}</section></div>
  <footer class="review-footer"><div><button data-action="previous" ${index===0?'disabled':''}>上一張</button><button data-action="next" ${index===list.length-1?'disabled':''}>下一張</button></div><span id="footer-status">${submitted?'已提交，可重新開啟修正':'選擇四項整體判斷後提交'}</span>${submitted?'<button data-action="reopen">重新開啟評分</button>':`<button class="primary" data-action="submit">${c.submitted===29?'提交並完成':'提交並繼續'}</button>`}</footer></main>`);
- for(const input of document.querySelectorAll('#score-card input,#score-card textarea'))input.disabled=submitted;
+ for(const input of document.querySelectorAll('#score-card input,#score-card select,#score-card textarea'))input.disabled=submitted;
  const img=document.querySelector('#main-photo');img.addEventListener('error',()=>document.querySelector('#image-failure').hidden=false);img.addEventListener('load',()=>document.querySelector('#image-failure').hidden=true);
  if(img.complete&&!img.naturalWidth)document.querySelector('#image-failure').hidden=false;
  showValidation();
@@ -70,7 +72,7 @@ async function openPhoto(id){
  if(state.loading)return;
  if(!state.manifest.assignments[state.expert]?.includes(id))return toast('這張照片不在你分配的 30 張內。',true);
  state.loading=true;
- for(const input of document.querySelectorAll('#score-card input,#score-card textarea'))input.disabled=true;
+ for(const input of document.querySelectorAll('#score-card input,#score-card select,#score-card textarea'))input.disabled=true;
  try{await saveCurrent();const photo=await fetchPhoto(id),record=await store.get(state.manifest.id,state.expert,id);state.photo=photo;state.review=record||createReview(photo,state.expert,state.manifest);state.dirty=false;state.errors=[];state.saveError=null;state.view='review';
   const search=new URLSearchParams(location.search);search.set('photo',id);search.set('expert',state.expert);history.replaceState(null,'','?'+search.toString());renderReview();await rememberCursor(id);
  }catch(error){
@@ -130,13 +132,17 @@ async function prepareImport(files,collection=false){
 }
 async function confirmImport(replaceNewer){if(!importPending)return;const pending=importPending;importPending=null;document.querySelector('#import-dialog').close();try{const result=await (pending.legacy?legacyStore:store).importRecords(pending.records,replaceNewer);toast(`補入 ${result.inserted} 筆，更新 ${result.replaced} 筆，保留 ${result.skipped} 筆。`);state.review=null;state.photo=null;state.dirty=false;if(pending.legacy){await startExpert(pending.experts[0]);await renderProgress();}else if(pending.collection)await renderManage();else await startExpert(pending.experts[0]);}catch(error){toast(error.message,true);}}
 function openDetail(title,body){document.querySelector('#detail-title').textContent=title;document.querySelector('#detail-body').innerHTML=body;document.querySelector('#detail-dialog').showModal();}
-function help(){openDetail('審閱說明',`<p>每位專家有固定的 30 張照片，先對照現場照片與 AI 的完整內容，再完成四項整體判斷。</p><ol><li>危害辨識：類型與情境理由是否符合照片，是否把推測當成事實。</li><li>危害完整性：是否仍有 AI 沒找出的危害。</li><li>引用法規：名稱、條號、條文與適用情境是否正確；缺少應引用的法規也可判不適當。</li><li>職災案例：作業情境與致災機制是否能支持這張照片的危害；來源未能確認時可選資訊不足。</li></ol><p>選擇部分適當／不適當（或部分正確／不正確）時，可複選有問題的危害、法規或案例，點「查看」可定位完整內容。負面判斷與漏報不必逐項寫理由。若願意補充，可在唯一的意見欄簡述。改善措施、防護具與立即危險判定也可在此補充意見。</p><p>法規評估基準為 2026-10-08 測試日的有效版本。AI 提供的條文是待評估內容，官方連結供查核。</p><p>進度自動保存在此瀏覽器。完成 30 張後，請匯出 JSON 回傳；換裝置可匯入備份。專家代碼用於區分進度。</p>`);}
+function help(){openDetail('審閱說明',`<p>每位專家有固定的 30 張照片，先對照現場照片與 AI 的完整內容，再完成四項整體判斷。</p><ol><li>危害辨識：類型與情境理由是否符合照片，是否把推測當成事實。</li><li>危害完整性：是否仍有 AI 沒找出的危害。選有漏報時，可依 17 種危害新增漏報項目，選填情境或位置；同類型可登錄不同情境。</li><li>引用法規：名稱、條號、條文與適用情境是否正確；缺少應引用的法規也可判不適當。</li><li>職災案例：作業情境與致災機制是否能支持這張照片的危害；來源未能確認時可選資訊不足。</li></ol><p>選擇部分適當／不適當（或部分正確／不正確）時，可複選有問題的危害、法規或案例，點「查看」可定位完整內容。負面判斷與漏報不必逐項寫理由。若願意補充，可在唯一的意見欄簡述。改善措施、防護具與立即危險判定也可在此補充意見。</p><p>法規評估基準為 2026-10-08 測試日的有效版本。AI 提供的條文是待評估內容，官方連結供查核。</p><p>進度自動保存在此瀏覽器。完成 30 張後，請匯出 JSON 回傳；換裝置可匯入備份。專家代碼用於區分進度。</p>`);}
 function openZoom(){if(!state.photo)return;zoom=1;const img=document.querySelector('#zoom-image');document.querySelector('#photo-dialog-title').textContent=state.photo.filename;img.onload=()=>setZoom(1);img.src=path(state.photo.image);img.alt=state.photo.filename+' 現場照片';document.querySelector('#photo-dialog').showModal();requestAnimationFrame(()=>setZoom(1));}
 function setZoom(value){zoom=Math.min(5,Math.max(.5,value));const stage=document.querySelector('#zoom-stage'),img=document.querySelector('#zoom-image');if(!img.naturalWidth)return;const fit=Math.min((stage.clientWidth-28)/img.naturalWidth,(stage.clientHeight-28)/img.naturalHeight);img.style.width=Math.round(img.naturalWidth*fit*zoom)+'px';img.style.height=Math.round(img.naturalHeight*fit*zoom)+'px';document.querySelector('#zoom-value').textContent=Math.round(zoom*100)+'%';if(zoom===1){stage.scrollTop=0;stage.scrollLeft=0;}}
 
-root.addEventListener('input',event=>{const el=event.target;if(el.dataset.field==='note'&&state.review?.status!=='submitted'){state.review.note=el.value;markChanged();}});
+root.addEventListener('input',event=>{const el=event.target;if(!state.review||state.review.status==='submitted'||state.loading)return;
+ if(el.dataset.missedField==='description'&&updateMissedHazard(state.review,el.dataset.missedId,'description',el.value))markChanged();
+ else if(el.dataset.field==='note'){state.review.note=el.value;markChanged();}
+});
 root.addEventListener('change',event=>{const el=event.target;if(el.id==='photo-select'){void openPhoto(el.value);return;}if(!state.review||state.review.status==='submitted'||state.loading)return;
- if(el.type==='radio'&&el.dataset.field){setOverallVerdict(state.review,el.dataset.field,el.value);const picker=document.querySelector('#problems-'+el.dataset.field);if(picker)picker.innerHTML=problemPickerHTML(state.photo,state.review,el.dataset.field);state.errors=state.errors.filter(err=>err.path!==el.dataset.field);showValidation();markChanged();}
+ if(el.type==='radio'&&el.dataset.field){setOverallVerdict(state.review,el.dataset.field,el.value);const picker=document.querySelector('#problems-'+el.dataset.field);if(picker)picker.innerHTML=el.dataset.field==='completeness'?missedEditorHTML(state.review):problemPickerHTML(state.photo,state.review,el.dataset.field);state.errors=state.errors.filter(err=>err.path!==el.dataset.field);showValidation();markChanged();}
+ else if(el.dataset.missedField==='type'&&updateMissedHazard(state.review,el.dataset.missedId,'type',el.value)){state.errors=state.errors.filter(err=>err.path!=='completeness');showValidation();markChanged();}
  else if(el.type==='checkbox'&&el.dataset.problemField&&toggleProblem(state.review,el.dataset.problemField,el.value,el.checked,state.photo)){const count=document.querySelector('#problems-'+el.dataset.problemField+' .problem-picker-heading span');if(count)count.textContent=`已勾 ${selectedProblems(state.review,el.dataset.problemField).length} 項`;markChanged();}
 });
 root.addEventListener('click',async event=>{
@@ -144,6 +150,7 @@ root.addEventListener('click',async event=>{
  if(state.loading)return toast('正在載入照片，請稍候。');
  try{if(button.dataset.expert){state.chosen=button.dataset.expert;welcome();return;}if(button.dataset.photo)return await openPhoto(button.dataset.photo);if(button.dataset.view)return await changeView(button.dataset.view);if(button.dataset.error){const field=document.querySelector('#score-'+button.dataset.error);field?.scrollIntoView({block:'nearest'});field?.querySelector('input')?.focus();return;}
   if(button.dataset.problemTarget){const target=document.getElementById(button.dataset.problemTarget);target?.scrollIntoView({block:'start'});target?.classList.add('problem-focus');setTimeout(()=>target?.classList.remove('problem-focus'),2400);return;}
+  if(button.dataset.removeMissed){if(removeMissedHazard(state.review,button.dataset.removeMissed)){renderMissedEditor();state.errors=state.errors.filter(err=>err.path!=='completeness');showValidation();markChanged();}return;}
   const action=button.dataset.action;
   if(action==='start')await startExpert(state.chosen);
   else if(action==='switch-expert'){await saveCurrent();state.review=null;state.photo=null;welcome();}
@@ -153,6 +160,7 @@ root.addEventListener('click',async event=>{
   else if(action==='previous'||action==='next'){const id=nextPhoto(action==='next'?1:-1);if(id)await openPhoto(id);}
   else if(action==='submit')await submit();
   else if(action==='reopen'){state.review.status='draft';state.review.submitted_at=null;markChanged();renderReview();}
+  else if(action==='add-missed'){const item=addMissedHazard(state.review);if(item){renderMissedEditor();markChanged();document.getElementById('missed-type-'+item.id)?.focus();}}
   else if(action==='export-json')await exportJson();
   else if(action==='export-csv')await exportCsv();
   else if(action==='collection-csv')await exportCsv(true);
