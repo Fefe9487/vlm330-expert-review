@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#174c43">
+  <meta name="description" content="330 張照片危害辨識 AI 結果的專家審閱工作台。">
+  <title>VLM330 · 照片危害辨識審閱</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要內容</a>
+  <div id="app"><main class="initial-state" id="main"><span class="brand-mark" aria-hidden="true">V</span><h1>照片危害辨識審閱</h1><p>正在準備 330 張照片與 AI 結果…</p></main></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="photo-dialog" class="photo-dialog" aria-labelledby="photo-dialog-title">
+    <div class="dialog-head"><h2 id="photo-dialog-title">照片放大</h2><div class="zoom-tools"><button type="button" id="zoom-out" aria-label="縮小照片">−</button><output id="zoom-value">100%</output><button type="button" id="zoom-in" aria-label="放大照片">＋</button><button type="button" id="zoom-reset">適合視窗</button><button type="button" data-close-dialog="photo-dialog">關閉</button></div></div>
+    <div class="zoom-stage" id="zoom-stage"><img id="zoom-image" alt="放大的現場照片" draggable="false"></div>
+  </dialog>
+  <dialog id="detail-dialog" class="detail-dialog" aria-labelledby="detail-title"><div class="dialog-head"><h2 id="detail-title">詳細內容</h2><button type="button" data-close-dialog="detail-dialog">關閉</button></div><div id="detail-body" class="dialog-body"></div></dialog>
+  <dialog id="import-dialog" class="import-dialog" aria-labelledby="import-title"><div class="dialog-head"><h2 id="import-title">匯入評分備份</h2><button type="button" data-close-dialog="import-dialog">取消</button></div><div id="import-body" class="dialog-body"></div></dialog>
+  <input id="restore-file" type="file" accept=".json,application/json" hidden>
+  <input id="collection-files" type="file" accept=".json,application/json" multiple hidden>
+  <noscript>此評分網頁需要 JavaScript。請開啟 JavaScript 後重新載入。</noscript>
+</body>
+</html>

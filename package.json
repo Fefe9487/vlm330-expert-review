@@ -1,0 +1,12 @@
+{
+  "name": "vlm330-expert-review",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Static photo and AI result review workspace for eleven experts",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "start": "node scripts/serve.mjs"
+  },
+  "engines": {"node": ">=20"}
+}
