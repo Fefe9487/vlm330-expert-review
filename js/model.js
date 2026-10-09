@@ -44,9 +44,10 @@ export function hazardProgress(r,h){
 }
 export function isTouched(r){return Boolean(r.quality||r.completeness||r.quality_note||r.missing_note||r.missing_types?.length||Object.values(r.hazards||{}).some(h=>h.verdict||h.ppe||h.improvements||h.immediate||h.law_gap||Object.values(h.laws||{}).some(Boolean)||Object.values(h.cases||{}).some(Boolean)||h.note||h.corrected_type||h.reason_codes?.length));}
 export function recordKey(r){return `${r.dataset_id}|${r.expert_id}|${r.photo_id}`;}
-export function makeBundle(manifest,expertId,records){return {format:'vlm330-expert-review',schema_version:1,app_version:APP_VERSION,dataset_id:manifest.id,dataset_fingerprint:manifest.fingerprint,expert_id:expertId,exported_at:new Date().toISOString(),photo_count:manifest.photo_count,records:records.filter(r=>r.expert_id===expertId)};}
-export function validateBundle(bundle,manifest){
+export function makeBundle(manifest,expertId,records,mode='production'){return {format:'vlm330-expert-review',schema_version:1,app_version:APP_VERSION,mode,dataset_id:manifest.id,dataset_fingerprint:manifest.fingerprint,expert_id:expertId,exported_at:new Date().toISOString(),photo_count:manifest.photo_count,records:records.filter(r=>r.expert_id===expertId)};}
+export function validateBundle(bundle,manifest,mode='production'){
  if(bundle?.format!=='vlm330-expert-review'||bundle.schema_version!==1)throw new Error('這不是支援的評分備份檔。');
+ if((bundle.mode||'production')!==mode)throw new Error('操作測試資料與正式評分不能混用。');
  if(bundle.dataset_id!==manifest.id||bundle.dataset_fingerprint!==manifest.fingerprint)throw new Error('備份的照片／AI 結果版本不同，不能匯入這次測試。');
  if(!manifest.expert_ids.includes(bundle.expert_id))throw new Error('備份中的專家代碼不在 A01–A11 清單中。');
  if(!Array.isArray(bundle.records)||bundle.records.length>manifest.photo_count)throw new Error('備份的評分筆數不正確。');
