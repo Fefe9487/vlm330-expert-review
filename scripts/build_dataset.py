@@ -47,22 +47,88 @@ def split_refs(text:str,details:list)->tuple[list,list]:
   unresolved.append(remainder)
  return refs,unresolved
 
+A11_LOAD_WEIGHT=0.88
+READING_SPREAD_LIMIT=800
+def reading_load(record:dict)->int:
+ """Characters an expert has to judge: description, rationale, law text and cases."""
+ n=len(record.get('description') or '')
+ for scene in record.get('vlm') or []:
+  n+=len((scene.get('危害情境推演') if isinstance(scene,dict) else '') or '')
+ for hazard in record.get('hazards') or []:
+  n+=len(hazard.get('law_text') or '')
+  for law in hazard.get('laws') or []:
+   for text in law.get('ai_texts') or []:n+=len(text or '')
+  for case in hazard.get('cases') or []:n+=len(case.get('text') or '')
+ return n
 def assign_photos(index:list)->dict:
- """Disjoint groups, balanced by domain and summary hazard count; frozen and deterministic."""
- experts=[f'A{i:02d}' for i in range(1,12)]
- groups={e:[] for e in experts};loads={e:0 for e in experts}
- # 219 construction + 111 manufacturing: ten 20/10 groups and one 19/11.
- for domain,capacities in [('營造',[20]*10+[19]),('製造',[10]*10+[11])]:
-  counts={e:0 for e in experts}
-  candidates=sorted((p for p in index if p['domain']==domain),key=lambda p:(-p['hazard_count'],p['id']))
-  for photo in candidates:
-   eligible=[e for i,e in enumerate(experts) if counts[e]<capacities[i]]
-   chosen=min(eligible,key=lambda e:(loads[e],counts[e],e))
-   groups[chosen].append(photo['id']);loads[chosen]+=photo['hazard_count'];counts[chosen]+=1
+ """Disjoint groups of 30. Domain quotas stay 20/10, except A11 at 19/11.
+ A01–A10 share judged text evenly; A11 is filled toward 88% of that load.
+ Higher-hazard photos move off A11, then A01–A10 swap until their hazard counts
+ differ by at most 10, while judged text stays within 800 characters."""
+ experts=[f'A{i:02d}' for i in range(1,12)];others=experts[:-1]
+ weight={e:(A11_LOAD_WEIGHT if e=='A11' else 1.0) for e in experts}
+ caps={'營造':{e:(19 if e=='A11' else 20) for e in experts},'製造':{e:(11 if e=='A11' else 10) for e in experts}}
+ by={p['id']:p for p in index}
+ loads={e:0 for e in experts};counts={d:{e:0 for e in experts} for d in caps};groups={e:[] for e in experts}
+ for photo in sorted(index,key=lambda p:(-p['reading_load'],p['id'])):
+  eligible=[e for e in experts if counts[photo['domain']][e]<caps[photo['domain']][e]]
+  chosen=min(eligible,key=lambda e:(loads[e]/weight[e],counts[photo['domain']][e],e))
+  groups[chosen].append(photo['id']);loads[chosen]+=photo['reading_load'];counts[photo['domain']][chosen]+=1
+ def judged(expert):return sum(by[i]['reading_load'] for i in groups[expert])
+ def hazards(expert):return sum(by[i]['hazard_count'] for i in groups[expert])
+ for _ in range(8):
+  moved=False
+  for pid in sorted(list(groups['A11']),key=lambda i:(-by[i]['hazard_count'],by[i]['reading_load'],i)):
+   if hazards('A11')<=min(hazards(e) for e in others) and judged('A11')<min(judged(e) for e in others):break
+   best=None
+   dom=by[pid]['domain']
+   current={e:judged(e) for e in others}
+   a11=judged('A11')
+   for expert in others:
+    for qid in groups[expert]:
+     if by[qid]['domain']!=dom or by[qid]['hazard_count']>=by[pid]['hazard_count']:continue
+     new_a11=a11-by[pid]['reading_load']+by[qid]['reading_load']
+     new_peer=current[expert]-by[qid]['reading_load']+by[pid]['reading_load']
+     peer=[new_peer if e==expert else current[e] for e in others]
+     if max(peer)-min(peer)>READING_SPREAD_LIMIT or new_a11>=min(peer):continue
+     key=(by[pid]['hazard_count']-by[qid]['hazard_count'],min(peer)-new_a11,expert,qid)
+     if best is None or key>best[0]:best=(key,expert,qid)
+   if best is None:continue
+   _,expert,qid=best
+   groups['A11'].remove(pid);groups[expert].remove(qid)
+   groups['A11'].append(qid);groups[expert].append(pid)
+   moved=True
+  if not moved:break
+ for _ in range(30):
+  current_h={e:hazards(e) for e in others};current_j={e:judged(e) for e in others}
+  heavy=max(others,key=lambda e:(current_h[e],e));light=min(others,key=lambda e:(current_h[e],e))
+  if current_h[heavy]-current_h[light]<=10:break
+  best=None
+  for pid in groups[heavy]:
+   for qid in groups[light]:
+    if by[pid]['domain']!=by[qid]['domain'] or by[pid]['hazard_count']<=by[qid]['hazard_count']:continue
+    new_heavy=current_j[heavy]-by[pid]['reading_load']+by[qid]['reading_load']
+    new_light=current_j[light]-by[qid]['reading_load']+by[pid]['reading_load']
+    peer=[];peer_h=[]
+    for expert in others:
+     if expert==heavy:peer.append(new_heavy);peer_h.append(current_h[heavy]-by[pid]['hazard_count']+by[qid]['hazard_count'])
+     elif expert==light:peer.append(new_light);peer_h.append(current_h[light]-by[qid]['hazard_count']+by[pid]['hazard_count'])
+     else:peer.append(current_j[expert]);peer_h.append(current_h[expert])
+    reduction=(current_h[heavy]-current_h[light])-(max(peer_h)-min(peer_h))
+    if reduction<=0 or max(peer)-min(peer)>READING_SPREAD_LIMIT or judged('A11')>=min(peer) or hazards('A11')>min(peer_h):continue
+    key=(reduction,-abs(new_heavy-new_light),pid,qid)
+    if best is None or key>best[0]:best=(key,pid,qid)
+  if best is None:break
+  _,pid,qid=best
+  groups[heavy].remove(pid);groups[light].remove(qid)
+  groups[heavy].append(qid);groups[light].append(pid)
  order={p['id']:i for i,p in enumerate(index)}
  for ids in groups.values():ids.sort(key=order.get)
  assert all(len(ids)==30 for ids in groups.values())
  assert len(set(sum(groups.values(),[])))==len(index)==330
+ rest=[judged(e) for e in others]
+ assert judged('A11')<min(rest) and max(rest)-min(rest)<=READING_SPREAD_LIMIT
+ assert sum(by[i]['hazard_count'] for i in groups['A11'])<=min(sum(by[i]['hazard_count'] for i in groups[e]) for e in others)
  return groups
 def build(workbook:Path,images:Path,out:Path)->dict:
  wb=openpyxl.load_workbook(workbook,read_only=True,data_only=True)
@@ -103,7 +169,7 @@ def build(workbook:Path,images:Path,out:Path)->dict:
   if not image_out.exists() or digest(image_out)!=image_hashes[name]:shutil.copy2(path,image_out)
   index.append({'id':photo_id,'filename':name,'domain':path.parent.name,'image':record['image'],'image_sha256':image_hashes[name],
    'data_file':f'data/cases/{photo_id}.json','hazard_count':len(hazards),'hazard_types':[h['type'] for h in hazards],
-   'case_count':sum(len(h['cases']) for h in hazards)})
+   'case_count':sum(len(h['cases']) for h in hazards),'reading_load':reading_load(record)})
  index.sort(key=lambda r:(r['filename'][0],int(re.search(r'\d+',r['filename']).group()),r['filename']))
  assignments=assign_photos(index)
  assignment_version='disjoint30-'+hashlib.sha256(json.dumps(assignments,sort_keys=True,separators=(',',':')).encode()).hexdigest()[:12]
@@ -116,16 +182,46 @@ def build(workbook:Path,images:Path,out:Path)->dict:
   'hazard_types':HAZARD_TYPES,'law_baseline_date':'2026-10-08','case_sources':'unconfirmed',
   'photos':index}
  write_json(out/'data/manifest.json',manifest)
+ write_assignments(manifest,out)
  write_json(out/'docs/import-report.json',{'dataset_id':dataset_id,'photo_count':len(index),'filename_matches':len(index),
   'hazard_count':manifest['hazard_count'],'case_reference_count':manifest['case_reference_count'],
   'unparsed_law_fragments':unparsed,'photo_copy_mode':'Original bytes, no crop, rotation or recompression',
   'metadata_source':'Actual revised photo files; stale index and manifest not used'})
  return {k:v for k,v in manifest.items() if k not in ('photos','hazard_types')}
+def write_assignments(manifest:dict,out:Path)->None:
+ photos={p['id']:p for p in manifest['photos']}
+ lines=['# 固定分組：每位 30 張','',
+  f"分組版本：{manifest['assignment_version']}。依待評閱讀量分配（整體描述、情境理由、法規條文、職災案例）。A01–A10 彼此相差在 800 字以內，A11 閱讀量最少。營造／製造仍是十組 20/10、A11 為 19/11。十一組互不重複，涵蓋 330 張。",'']
+ for expert in manifest['expert_ids']:
+  items=[photos[i] for i in manifest['assignments'][expert]]
+  cons=sum(p['domain']=='營造' for p in items);mfg=sum(p['domain']=='製造' for p in items)
+  lines+=[f'## {expert}','',
+   f"30 張：營造 {cons} 張、製造 {mfg} 張；待評文字 {sum(p['reading_load'] for p in items):,} 字，危害 {sum(p['hazard_count'] for p in items)} 項。",'',
+   f'[專家入口](https://fefe9487.github.io/vlm330-expert-review/?expert={expert})','',
+   '、'.join(p['filename'] for p in items),'']
+ (out/'docs/ASSIGNMENTS.md').write_text('\n'.join(lines),encoding='utf-8')
+def reassign(out:Path)->dict:
+ manifest=json.loads((out/'data/manifest.json').read_text(encoding='utf-8'))
+ for photo in manifest['photos']:
+  photo['reading_load']=reading_load(json.loads((out/photo['data_file']).read_text(encoding='utf-8')))
+ manifest['assignments']=assign_photos(manifest['photos'])
+ manifest['assignment_version']='disjoint30-'+hashlib.sha256(json.dumps(manifest['assignments'],sort_keys=True,separators=(',',':')).encode()).hexdigest()[:12]
+ write_json(out/'data/manifest.json',manifest)
+ write_assignments(manifest,out)
+ photos={p['id']:p for p in manifest['photos']}
+ return {e:{'reading_load':sum(photos[i]['reading_load'] for i in ids),'hazards':sum(photos[i]['hazard_count'] for i in ids),
+  'construction':sum(photos[i]['domain']=='營造' for i in ids),'manufacturing':sum(photos[i]['domain']=='製造' for i in ids)}
+  for e,ids in manifest['assignments'].items()}
 if __name__=='__main__':
  sys.stdout.reconfigure(encoding='utf-8')
  parser=argparse.ArgumentParser()
  parser.add_argument('--workbook',type=Path,default=DEFAULT_PROJECT.parent/'sh168圖形辨識330筆結果.xlsx')
  parser.add_argument('--images',type=Path,default=DEFAULT_PROJECT.parents[1]/'危害辨識測試_330')
  parser.add_argument('--output',type=Path,default=DEFAULT_PROJECT)
+ parser.add_argument('--reassign',action='store_true')
  args=parser.parse_args()
- print(json.dumps(build(args.workbook,args.images,args.output),ensure_ascii=False,indent=2))
+ if args.reassign:
+  loads=reassign(args.output)
+  version=json.loads((args.output/'data/manifest.json').read_text(encoding='utf-8'))['assignment_version']
+  print(json.dumps({'assignment_version':version,'loads':loads},ensure_ascii=False,indent=2))
+ else:print(json.dumps(build(args.workbook,args.images,args.output),ensure_ascii=False,indent=2))
