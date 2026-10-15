@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VLM330 照片危害辨識審閱 · 操作簡報</title>
+<style>
+  :root { --ink:#1c2430; --muted:#5c6b7a; --line:#d8e0e8; --blue:#1d4e89; --bg:#f4f7fb; --card:#fff; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:#101820; color:var(--ink); font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif; }
+  .deck { height:100%; }
+  .slide { display:none; height:100%; padding:28px 36px 64px; }
+  .slide.active { display:flex; }
+  .sheet { width:min(1100px,100%); margin:auto; background:var(--card); min-height:calc(100% - 8px); padding:36px 44px 28px; border-top:8px solid var(--blue); }
+  h1 { font-size:34px; line-height:1.35; margin:0 0 12px; font-weight:700; }
+  h2 { font-size:26px; margin:0 0 16px; color:var(--blue); font-weight:700; }
+  p,li { font-size:18px; line-height:1.55; }
+  .lead { font-size:20px; color:#243140; }
+  .kicker { letter-spacing:.08em; color:var(--blue); font-size:14px; font-weight:700; margin-bottom:10px; }
+  ol,ul { margin:8px 0 0; padding-left:1.3em; }
+  li { margin:6px 0; }
+  table { width:100%; border-collapse:collapse; font-size:16px; }
+  th,td { border-bottom:1px solid var(--line); text-align:left; vertical-align:top; padding:8px 10px; }
+  th { color:var(--blue); font-weight:700; background:#f7fafc; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .card { background:var(--bg); padding:14px 16px; }
+  .card strong { display:block; margin-bottom:4px; color:var(--blue); }
+  .note { margin-top:14px; padding:10px 14px; background:#f7fafc; border-left:4px solid var(--blue); color:#243140; font-size:16px; }
+  .links { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .links a { display:block; padding:10px 12px; background:var(--bg); color:var(--blue); text-decoration:none; font-weight:700; }
+  .bar { position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:space-between; align-items:center; padding:10px 18px; background:#101820; color:#d5dee8; font-size:14px; }
+  button { background:#1d4e89; color:#fff; border:0; padding:8px 14px; font:inherit; cursor:pointer; }
+  button.ghost { background:transparent; color:#d5dee8; }
+  @media print {
+    html,body,.deck,.slide { height:auto; background:#fff; }
+    .slide { display:block !important; page-break-after:always; padding:0; }
+    .sheet { min-height:92vh; box-shadow:none; }
+    .bar { display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<section class="slide active">
+  <div class="sheet">
+    <div class="kicker">VLM330 · 專家審閱</div>
+    <h1>照片危害辨識審閱<br>操作說明</h1>
+    <p class="lead">請用分配給你的代碼，審閱 30 張現場照片。對照照片與 AI 內容，完成四項整體判斷。不用逐條法規、逐則案例各打一次分數。</p>
+    <div class="grid" style="margin-top:22px">
+      <div class="card"><strong>每人</strong>30 張，四項判斷都要選</div>
+      <div class="card"><strong>全部</strong>11 人、330 張，彼此不重複</div>
+      <div class="card"><strong>法規基準日</strong>2026-10-08 當時有效的版本</div>
+      <div class="card"><strong>完成後</strong>匯出 JSON，回傳給研究團隊</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>這次要你確認的事</h2>
+    <ol>
+      <li>AI 辨識的危害，類型和理由是否對得上這張照片。</li>
+      <li>照片上看得到、清單裡沒有的危害，有沒有漏掉。</li>
+      <li>引用的法規名稱、條號、條文是否正確，而且適用這個場所和作業。</li>
+      <li>附上的職災案例，作業和致災過程是否對得上這張照片的危害。</li>
+    </ol>
+    <p class="note">立即危險、個人防護具、改善建議沒有單獨分數。明顯不合理時，寫在補充意見即可。</p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>怎麼開始</h2>
+    <ol>
+      <li>打開信裡給你的網址。網址結尾是 <b>?expert=A01</b> 到 <b>A11</b> 其中一個。</li>
+      <li>確認畫面上的代碼是你的。代碼只用來分開 11 份進度，沒有帳號密碼。</li>
+      <li>用同一套瀏覽器做到完。清除網站資料會刪掉還沒匯出的評分。</li>
+      <li>右上角「審閱說明」是簡表。判斷基準以這份簡報為準。</li>
+    </ol>
+    <p class="note">請只使用自己的代碼。進度存在這台瀏覽器，做一做就匯出 JSON。</p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>畫面怎麼看</h2>
+    <div class="grid">
+      <div class="card"><strong>左欄</strong>現場照片，以及這張照片的四項判斷。點照片可放大、拖曳。</div>
+      <div class="card"><strong>右欄</strong>AI 的整體描述、各項危害、引用法規、職災案例、改善建議。</div>
+    </div>
+    <ol>
+      <li>先看照片，自己想現場有什麼。</li>
+      <li>再讀右側 AI 內容。</li>
+      <li>最後才選四項判斷。</li>
+    </ol>
+    <p class="note">右側「信賴度」是 AI 對自己的把握，不是這項危害成立的證據。</p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>四項判斷</h2>
+    <table>
+      <thead><tr><th>項目</th><th>選項</th><th>怎麼選</th></tr></thead>
+      <tbody>
+        <tr><td>1. 危害是否正確</td><td>正確／部分正確／不正確／資訊不足</td><td>類型和理由是否對得上照片，有沒有把推測寫成事實</td></tr>
+        <tr><td>2. 是否找齊</td><td>未發現漏報／有漏報／無法判斷</td><td>照片上看得到、最終清單沒有的危害</td></tr>
+        <tr><td>3. 引用法規</td><td>適當／部分適當／不適當／資訊不足</td><td>條號、條文是否正確，而且適用這張照片</td></tr>
+        <tr><td>4. 職災案例</td><td>適當／部分適當／不適當／資訊不足</td><td>作業和致災過程是否支持這張照片的危害</td></tr>
+      </tbody>
+    </table>
+    <p class="note">資訊不足：照片看不出判斷所需的事實，例如是否帶電、化學品成分、距離、會不會爆炸。案例太短、太籠統時，第 4 項也可選資訊不足。</p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>有問題時要勾出來</h2>
+    <ul>
+      <li>第 1 項選「部分正確」或「不正確」：勾出有問題的危害。整體描述也不對時，勾「AI 整體描述」。</li>
+      <li>第 3、4 項選「部分適當」或「不適當」：勾出有問題的法規或案例。可複選。「查看」會跳到原文。</li>
+      <li>沒勾到的項目，不會被當成你已確認正確。有問題的請勾上。</li>
+    </ul>
+    <p>危害卡若寫「最終報告增列此類型，原始辨識結果沒有對應的情境理由」，這項是後來加上的。照片上看不到，就計入辨識錯誤。</p>
+    <p class="note">頁面下方「原始辨識的其他情境」若照片看得到、最終清單沒有，算漏報，補在第 2 項。</p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>漏報怎麼補</h2>
+    <p>選「有漏報」後，按「＋ 新增漏報項目」。類型從 17 種裡選，情境或位置可以留空。同一類型、不同位置請分成兩筆。</p>
+    <p>墜落、滾落；跌倒；衝撞；物體飛落；物體倒塌、崩塌；被撞；被夾、被捲；被切、割、擦傷；踩踏 (踏穿)；溺斃；與高溫、低溫之接觸；與有害物等之接觸；感電；爆炸；物體破裂；火災；不當動作。</p>
+    <p class="note">開了空白列卻沒選類型時無法提交。請選類型，或按「移除」。改選其他選項時，已寫的漏報會留成草稿。</p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>法規與案例</h2>
+    <div class="grid">
+      <div class="card"><strong>法規</strong>只評「引用法規」那一欄。AI 貼的條文可能有錯，請開旁邊的官方連結核對條號與條文。連結會開到該條。</div>
+      <div class="card"><strong>沒有引用</strong>空白、「AI 未引用法規」，或寫著無指定法規、無、未提供、未提供路由法規、無參考法規，都算沒有引用。</div>
+    </div>
+    <ul>
+      <li>照片足以判斷該引哪一條，卻沒有條號：選「不適當」，勾該危害，並勾「缺少應引用的法規」。</li>
+      <li>同一張有的有條號、有的沒有或寫錯：選「部分適當」，只勾有問題的那些。</li>
+      <li>「無直接證據，請現場人員確認」出現在改善建議，不是法規，不能代替條號。</li>
+      <li>案例沒有原始出處，只評情境和致災過程像不像。內文若是「無參考職災案例」，這不是可用案例。</li>
+      <li>若寫「AI 未提供職災案例，本項免評」，這張不用評第 4 項。</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>送出與回傳</h2>
+    <ol>
+      <li>四項都選完，按「提交並繼續」。最後一張是「提交並完成」。</li>
+      <li>已提交的照片可按「重新開啟評分」再改，改完再提交。</li>
+      <li>補充意見選填，5,000 字以內。四項判斷不用逐項寫理由。</li>
+      <li>做完或要換電腦前，到「我的進度與備份」，按「匯出 JSON 評分檔」，把 JSON 回傳。</li>
+      <li>換裝置時先按「匯入評分備份」，選自己的 JSON，再繼續。</li>
+    </ol>
+    <p class="note">上方「已提交 x / 30」到 30 才算完成。草稿不算。CSV 只供統計，不能還原進度，請回傳 JSON。</p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="sheet">
+    <h2>專家入口</h2>
+    <p>請只用分配給你的那一個。點下去會直接進入你的 30 張。</p>
+    <div class="links">
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A01">A01</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A02">A02</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A03">A03</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A04">A04</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A05">A05</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A06">A06</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A07">A07</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A08">A08</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A09">A09</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A10">A10</a>
+      <a href="https://fefe9487.github.io/vlm330-expert-review/?expert=A11">A11</a>
+    </div>
+    <p class="note">進度只存在這台瀏覽器。做一做就匯出一次 JSON，避免清除資料或換電腦後找不到。</p>
+  </div>
+</section>
+
+</div>
+<div class="bar">
+  <span id="count">1 / 10</span>
+  <span>
+    <button class="ghost" type="button" id="prev">上一頁</button>
+    <button type="button" id="next">下一頁</button>
+  </span>
+</div>
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  const show=n=>{ i=(n+slides.length)%slides.length; slides.forEach((s,k)=>s.classList.toggle('active',k===i)); document.getElementById('count').textContent=`${i+1} / ${slides.length}`; };
+  document.getElementById('prev').onclick=()=>show(i-1);
+  document.getElementById('next').onclick=()=>show(i+1);
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight'||e.key==='PageDown') show(i+1); if(e.key==='ArrowLeft'||e.key==='PageUp') show(i-1); });
+</script>
+</body>
+</html>
