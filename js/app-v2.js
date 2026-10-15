@@ -5,9 +5,10 @@ import {escapeHTML as e,reportHTML} from './content.js';
 import {problemPickerHTML,setOverallVerdict,toggleProblem,setProblemNote,validateProblemItems} from './problem-items.js';
 import {missedEditorHTML,addMissedHazard,updateMissedHazard,removeMissedHazard} from './missed-hazards.js';
 
-const root=document.querySelector('#app'),params=new URLSearchParams(location.search),qa=params.get('qa')==='1',mode=qa?'qa':'production';
+const root=document.querySelector('#app'),params=new URLSearchParams(location.search);
+if(params.has('qa')){params.delete('qa');const next=params.toString();history.replaceState(null,'',next?`?${next}`:location.pathname);}
 // The previous per-item answers stay in their original database and can be exported.
-const store=new ReviewStore(`${mode}-v2`),legacyStore=new ReviewStore(mode);
+const store=new ReviewStore('production-v2'),legacyStore=new ReviewStore('production');
 const state={manifest:null,expert:null,chosen:null,photo:null,review:null,records:new Map(),view:'review',dirty:false,mutation:0,saveError:null,loading:false,legacyCount:0,errors:[]};
 const cache=new Map();let saveTimer,savePromise,toastTimer,importPending,zoom=1,requestedPhoto=params.get('photo');
 const photos=()=>assignedPhotos(state.manifest,state.expert);
@@ -16,7 +17,7 @@ const path=p=>p.split('/').map(encodeURIComponent).join('/');
 function toast(message,error=false){const node=document.querySelector('#toast');clearTimeout(toastTimer);node.textContent=message;node.classList.toggle('error',error);node.hidden=false;toastTimer=setTimeout(()=>node.hidden=true,error?7000:3500);}
 function counts(){const values=[...state.records.values()];return {submitted:values.filter(r=>r.status==='submitted').length,draft:values.filter(r=>r.status!=='submitted'&&isTouched(r)).length};}
 function shell(body){
- root.innerHTML=`<div class="app-shell"><header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">V</span><div><strong>照片危害辨識審閱</strong><span class="brand-sub">VLM330 · 每位專家 30 張</span></div></div><div class="top-actions"><span id="save-label" class="save-state" role="status">本瀏覽器保存</span>${state.expert?`<button data-action="switch-expert">${e(state.expert)} · 切換</button>`:''}<button data-action="help">審閱說明</button></div></header>${qa?'<div class="qa-banner">操作測試模式 · 與正式評分分開保存</div>':''}<nav class="navbar" aria-label="主要功能">${[['review','照片與 AI 內容'],['progress','我的進度與備份']].map(([v,label])=>`<button class="nav-tab ${state.view===v?'active':''}" data-view="${v}">${label}</button>`).join('')}<span class="local-note">進度保存在此瀏覽器，請定期匯出備份</span></nav><div id="page-error" hidden></div>${body}</div>`;
+ root.innerHTML=`<div class="app-shell"><header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">V</span><div><strong>照片危害辨識審閱</strong><span class="brand-sub">VLM330 · 每位專家 30 張</span></div></div><div class="top-actions"><span id="save-label" class="save-state" role="status">本瀏覽器保存</span>${state.expert?`<button data-action="switch-expert">${e(state.expert)} · 切換</button>`:''}<button data-action="help">審閱說明</button></div></header><nav class="navbar" aria-label="主要功能">${[['review','照片與 AI 內容'],['progress','我的進度與備份']].map(([v,label])=>`<button class="nav-tab ${state.view===v?'active':''}" data-view="${v}">${label}</button>`).join('')}<span class="local-note">進度保存在此瀏覽器，請定期匯出備份</span></nav><div id="page-error" hidden></div>${body}</div>`;
  updateSaveStatus();
 }
 function welcome(){
@@ -107,8 +108,8 @@ async function currentRecords(){return (await store.all(state.manifest.id)).filt
 function download(name,text,type='application/json'){const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);}
 function stamp(){return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 async function exportRecords(){try{await saveCurrent();}catch{toast('備份會包含目前尚未保存的草稿。',true);}let records=(await currentRecords()).filter(r=>r.expert_id===state.expert);if(state.dirty&&state.review)records=[...records.filter(r=>r.photo_id!==state.review.photo_id),structuredClone(state.review)];return records.filter(isTouched);}
-async function exportJson(){if(!state.expert)return toast('請先選擇專家代碼。',true);const records=await exportRecords();download(`VLM330_${state.expert}_${stamp()}${qa?'_QA':''}.json`,JSON.stringify(makeBundle(state.manifest,state.expert,records,mode),null,2));try{await store.meta(`backup:${state.manifest.id}:${state.expert}`,new Date().toISOString());}catch{}toast('JSON 評分檔已匯出，請回傳給研究團隊。');if(state.view==='progress')await renderProgress();}
-async function legacyExport(){if(!state.expert)return;const records=await legacyStore.all(state.manifest.id,state.expert);download(`VLM330_${state.expert}_舊版_${stamp()}${qa?'_QA':''}.json`,JSON.stringify(legacyModel.makeBundle(state.manifest,state.expert,records,mode),null,2));toast('舊版資料已匯出，原始紀錄繼續保留。');}
+async function exportJson(){if(!state.expert)return toast('請先選擇專家代碼。',true);const records=await exportRecords();download(`VLM330_${state.expert}_${stamp()}.json`,JSON.stringify(makeBundle(state.manifest,state.expert,records),null,2));try{await store.meta(`backup:${state.manifest.id}:${state.expert}`,new Date().toISOString());}catch{}toast('JSON 評分檔已匯出，請回傳給研究團隊。');if(state.view==='progress')await renderProgress();}
+async function legacyExport(){if(!state.expert)return;const records=await legacyStore.all(state.manifest.id,state.expert);download(`VLM330_${state.expert}_舊版_${stamp()}.json`,JSON.stringify(legacyModel.makeBundle(state.manifest,state.expert,records),null,2));toast('舊版資料已匯出，原始紀錄繼續保留。');}
 async function checkRecord(r,legacy=false){const p=await fetchPhoto(r.photo_id);if(legacy){const ids=p.hazards.map(h=>h.id);if(Object.keys(r.hazards).length!==ids.length||ids.some(id=>!Object.hasOwn(r.hazards,id)))throw new Error('舊版危害項目不相符。');for(const h of p.hazards){const v=r.hazards[h.id];for(const [kind,items] of [['laws',h.laws],['cases',h.cases]])if(!v[kind]||Object.keys(v[kind]).length!==items.length||items.some(i=>!Object.hasOwn(v[kind],i.id)))throw new Error('舊版引用項目不相符。');if(typeof v.note!=='string'||v.note.length>5000)throw new Error('舊版說明格式不正確。');}}
  if(!legacy&&validateProblemItems(r,p).length)throw new Error(`照片 ${p.filename} 勾選的問題項目不相符。`);
  if(r.status==='submitted'&&(legacy?legacyModel.validateReview(r,p):validateReview(r,p,state.manifest)).length)throw new Error(`照片 ${p.filename} 標示已提交，但評分不完整。`);
@@ -117,7 +118,7 @@ async function prepareImport(files){
  if(!files.length)return;try{await saveCurrent();const bundles=[];
   for(const file of files){if(file.size>30*1024*1024)throw new Error('單一備份檔過大。');const value=JSON.parse(await file.text());if(value.format==='vlm330-review-collection')throw new Error('請匯入你自己的 JSON 評分檔。');bundles.push(value);}
   if(new Set(bundles.map(b=>b.schema_version)).size!==1)throw new Error('請分開匯入舊版與新版評分。');const legacy=bundles[0]?.schema_version===1;
-  for(const bundle of bundles)(legacy?legacyModel.validateBundle:validateBundle)(bundle,state.manifest,mode);
+  for(const bundle of bundles)(legacy?legacyModel.validateBundle:validateBundle)(bundle,state.manifest);
   if(new Set(bundles.map(b=>b.expert_id)).size>1||(state.expert&&bundles.some(b=>b.expert_id!==state.expert)))throw new Error('請匯入你自己的 JSON 評分檔。');
   const map=new Map();for(const b of bundles)for(const r of b.records){const old=map.get(recordKey(r));if(!old||Date.parse(r.updated_at||r.created_at)>Date.parse(old.updated_at||old.created_at))map.set(recordKey(r),r);}const records=[...map.values()];await Promise.all(records.map(r=>checkRecord(r,legacy)));
   const target=legacy?legacyStore:store,existing=new Map((await target.all(state.manifest.id)).map(r=>[recordKey(r),r]));const newer=records.filter(r=>existing.has(recordKey(r))&&Date.parse(r.updated_at||r.created_at)>Date.parse(existing.get(recordKey(r)).updated_at||existing.get(recordKey(r)).created_at)).length;
