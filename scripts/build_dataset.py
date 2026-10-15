@@ -1,7 +1,7 @@
 """Build static review data from the revised photos and the frozen AI workbook."""
 from __future__ import annotations
 from pathlib import Path
-from collections import Counter
+from collections import Counter,defaultdict
 import argparse
 import hashlib
 import json
@@ -12,39 +12,87 @@ import openpyxl
 
 DEFAULT_PROJECT=Path(__file__).resolve().parents[1]
 HAZARD_TYPES=['墜落、滾落','跌倒','衝撞','物體飛落','物體倒塌、崩塌','被撞','被夾、被捲','被切、割、擦傷','踩踏 (踏穿)','溺斃','與高溫、低溫之接觸','與有害物等之接觸','感電','爆炸','物體破裂','火災','不當動作','其他','無法歸類者']
-LAW_URLS={
- '職業安全衛生設施規則':'https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=N0060009',
- '營造安全衛生設施標準':'https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=N0060014',
- '職業安全衛生法':'https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=N0060001',
- '缺氧症預防規則':'https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=N0060020',
+LAW_PCODE={
+ '職業安全衛生設施規則':'N0060009',
+ '營造安全衛生設施標準':'N0060014',
+ '職業安全衛生法':'N0060001',
+ '缺氧症預防規則':'N0060020',
+ '起重升降機具安全規則':'N0060013',
+ '職業安全衛生管理辦法':'N0060027',
+ '機械設備器具安全標準':'N0060034',
 }
-LAW_RX=re.compile(r'([\u4e00-\u9fff]+?(?:規則|標準|辦法|指引|法))\s*第\s*(\d+(?:\s*[-之－]\s*\d+)?)\s*條(?:\s*第\s*\d+\s*[項款])?')
+GUIDE_URLS={'高氣溫作業熱危害預防指引':'https://www.osha.gov.tw/1106/1196/10141/18360/18362/'}
+LAW_ALIASES={'營造安全衛生設施規則':'營造安全衛生設施標準'}
+LAW_NAME=r'[\u4e00-\u9fff]{2,40}?(?:規則|標準|辦法|指引|法)'
+ARTICLE=r'第\s*(?P<main>\d+)\s*(?:(?P<dash>[-－之])\s*(?P<dashn>\d+)\s*)?條(?:\s*之\s*(?P<after>\d+))?(?:\s*第\s*\d+\s*[項款])?'
+CITATION=re.compile(rf'(?:(?P<law>{LAW_NAME})\s*)?{ARTICLE}')
 def digest(path:Path)->str:
  return hashlib.sha256(path.read_bytes()).hexdigest()
-def normal_number(value:str)->str:
- return re.sub(r'\s|第|條','',str(value)).replace('之','-').replace('－','-')
 def write_json(path:Path,value)->None:
  path.parent.mkdir(parents=True,exist_ok=True)
  path.write_text(json.dumps(value,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
-def split_refs(text:str,details:list)->tuple[list,list]:
- refs=[];seen=set()
- for match in LAW_RX.finditer(text):
-  law,number=match.group(1),normal_number(match.group(2))
-  key=(law,number)
+def canonical_law(name:str)->str:
+ name=re.sub(r'\s+','',str(name or ''))
+ return LAW_ALIASES.get(name,name)
+def article_from_match(match)->str:
+ if not match or not match.group('main'):return ''
+ sub=match.group('after') or match.group('dashn')
+ return f"{match.group('main')}-{sub}" if sub else match.group('main')
+def article_number(value:str)->str:
+ return article_from_match(CITATION.search(f'第{value}條' if '條' not in str(value) else str(value)))
+def detail_identity(detail:dict)->tuple[str,str]:
+ raw_name=str(detail.get('法規名稱') or '').strip()
+ glued=re.match(rf'^(?P<law>{LAW_NAME})\s*{ARTICLE}$',raw_name)
+ if glued:return canonical_law(glued.group('law')),article_from_match(glued) or article_number(detail.get('條號'))
+ return canonical_law(raw_name),article_number(detail.get('條號'))
+def official_link(law:str,article:str)->tuple[str,bool]:
+ if law in GUIDE_URLS:return GUIDE_URLS[law],False
+ pcode=LAW_PCODE.get(law)
+ if pcode and article:return f'https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode={pcode}&flno={article}',True
+ if pcode:return f'https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode={pcode}',False
+ return 'https://law.moj.gov.tw/',False
+def citation_present(text:str)->bool:
+ return bool(CITATION.search(str(text or '')))
+def catalog_from_details(details)->dict:
+ counts=defaultdict(Counter)
+ for detail in details:
+  law,article=detail_identity(detail)
+  body=str(detail.get('完整法規內文') or '').strip()
+  if law and article and body:counts[(law,article)][body]+=1
+ return {key:counter.most_common(1)[0][0] for key,counter in counts.items()}
+def unique_law(article:str,photo:dict,catalog:dict)->str:
+ found={law for law,art in photo if art==article}
+ if len(found)==1:return next(iter(found))
+ found={law for law,art in catalog if art==article}
+ if len(found)==1:return next(iter(found))
+ return ''
+def split_refs(text:str,details:list,catalog:dict|None=None)->tuple[list,list]:
+ """Pair citation strings with article text already stored in the AI workbook.
+ Abbreviated follow-on numbers keep the preceding statute, and 第N條之M stays one article."""
+ catalog=catalog or {}
+ text=str(text or '')
+ photo={}
+ for detail in details or []:
+  law,article=detail_identity(detail)
+  body=str(detail.get('完整法規內文') or '').strip()
+  if not law or not article or not body:continue
+  photo.setdefault((law,article),[])
+  if body not in photo[(law,article)]:photo[(law,article)].append(body)
+ refs=[];seen=set();current='';unresolved=[]
+ for match in CITATION.finditer(text):
+  named=canonical_law(match.group('law') or '')
+  if named:current=named
+  article=article_from_match(match)
+  law=current or unique_law(article,photo,catalog)
+  if not law:
+   unresolved.append(match.group(0));continue
+  key=(law,article)
   if key in seen:continue
   seen.add(key)
-  matches=[d for d in details if d['法規名稱'].strip()==law and normal_number(d['條號'])==number]
-  refs.append({'id':f'l{len(refs)+1:02d}','label':match.group(0),'law_name':law,'article':number,
-   'ai_texts':list(dict.fromkeys(d['完整法規內文'] for d in matches)),
-   'official_url':LAW_URLS.get(law,'https://law.moj.gov.tw/'),
-   'official_link_is_specific':law in LAW_URLS})
- # Keep material that the parser cannot interpret visible and rateable.
- remainder=LAW_RX.sub('',text).strip(' 、，,；;。\n\r\t')
- unresolved=[]
- if refs and re.sub(r'[、，,；;。\s]','',remainder):
-  refs.append({'id':f'l{len(refs)+1:02d}','label':remainder,'law_name':'','article':'','ai_texts':[],
-   'official_url':'https://law.moj.gov.tw/','official_link_is_specific':False,'unparsed':True})
-  unresolved.append(remainder)
+  texts=photo.get(key) or ([catalog[key]] if key in catalog else [])
+  url,specific=official_link(law,article)
+  refs.append({'id':f'l{len(refs)+1:02d}','label':f'{law}第{article}條','law_name':law,'article':article,
+   'ai_texts':texts,'official_url':url,'official_link_is_specific':specific})
  return refs,unresolved
 
 A11_LOAD_WEIGHT=0.88
@@ -145,15 +193,19 @@ def build(workbook:Path,images:Path,out:Path)->dict:
  image_hashes={name:digest(path) for name,path in by_name.items()}
  fingerprint=hashlib.sha256((source_hash+'\n'+'\n'.join(f'{n}:{image_hashes[n]}' for n in sorted(by_name))).encode()).hexdigest()
  dataset_id='vlm330-20261008-'+fingerprint[:12]
- index=[];unparsed=[]
+ parsed=[]
  for excel_row,row in enumerate(rows,start=2):
+  parsed.append((excel_row,row,json.loads(row['VlmReportJson']),json.loads(row['SummaryReportJson'])))
+ catalog=catalog_from_details(detail for _,_,_,summary in parsed for detail in summary.get('法規詳情') or [])
+ index=[];unparsed=[]
+ for excel_row,row,vlm,summary in parsed:
   name=row['OriginalFileName'];path=by_name[name];photo_id=path.stem
-  vlm=json.loads(row['VlmReportJson']);summary=json.loads(row['SummaryReportJson'])
   details=summary.get('法規詳情',[])
   hazards=[]
   for n,item in enumerate(summary['辨識結果']):
-   law_text=item.get('違反法規','')
-   refs,unresolved=split_refs(law_text,details)
+   law_text=item.get('違反法規','') or ''
+   refs,unresolved=split_refs(law_text,details,catalog)
+   if not refs and not citation_present(law_text):law_text=''
    unparsed.extend({'photo_id':photo_id,'hazard_id':f'h{n+1:02d}','text':t} for t in unresolved)
    cases=[{'id':f'c{k+1:02d}','text':text,'source_status':'unconfirmed'} for k,text in enumerate(item.get('過去事故案例',[]))]
    hazards.append({'id':f'h{n+1:02d}','type':item['危害類型'],'law_text':law_text,'laws':refs,'cases':cases,
@@ -212,6 +264,54 @@ def reassign(out:Path)->dict:
  return {e:{'reading_load':sum(photos[i]['reading_load'] for i in ids),'hazards':sum(photos[i]['hazard_count'] for i in ids),
   'construction':sum(photos[i]['domain']=='營造' for i in ids),'manufacturing':sum(photos[i]['domain']=='製造' for i in ids)}
   for e,ids in manifest['assignments'].items()}
+def check_parser()->None:
+ details=[{'法規名稱':'職業安全衛生設施規則','條號':'第155-1條','完整法規內文':'吊運條文'},
+  {'法規名稱':'職業安全衛生設施規則','條號':'第116條','完整法規內文':'車輛'},
+  {'法規名稱':'職業安全衛生設施規則','條號':'第119條','完整法規內文':'營建機械'},
+  {'法規名稱':'營造安全衛生設施標準','條號':'第69條','完整法規內文':'開挖'},
+  {'法規名稱':'營造安全衛生設施標準','條號':'第159條','完整法規內文':'拆除'},
+  {'法規名稱':'營造安全衛生設施標準第17條','條號':'第17條','完整法規內文':'假設'}]
+ refs,missed=split_refs('職業安全衛生設施規則第155條之1',details,{})
+ assert not missed and refs[0]['article']=='155-1' and refs[0]['ai_texts']==['吊運條文'] and refs[0]['official_url'].endswith('flno=155-1')
+ refs,missed=split_refs('職業安全衛生設施規則第116條、第119條；營造安全衛生設施標準第69條、第159條；職業安全衛生法第32條',details,{('職業安全衛生法','32'):'教育訓練'})
+ assert not missed and [(r['law_name'],r['article']) for r in refs]==[
+  ('職業安全衛生設施規則','116'),('職業安全衛生設施規則','119'),('營造安全衛生設施標準','69'),('營造安全衛生設施標準','159'),('職業安全衛生法','32')]
+ assert refs[4]['ai_texts']==['教育訓練'] and 'flno=32' in refs[4]['official_url']
+ refs,_=split_refs('職業安全衛生設施規則第29條之1、第184條之1、第196條',[],{})
+ assert [r['article'] for r in refs]==['29-1','184-1','196']
+ refs,_=split_refs('營造安全衛生設施規則第224條',[{'法規名稱':'營造安全衛生設施標準','條號':'第224條','完整法規內文':'高處'}],{})
+ assert refs[0]['law_name']=='營造安全衛生設施標準' and refs[0]['ai_texts']==['高處'] and 'N0060014' in refs[0]['official_url']
+ refs,_=split_refs('無指定法規',details,{});assert refs==[]
+ refs,_=split_refs('高氣溫作業熱危害預防指引第4條',[{'法規名稱':'高氣溫作業熱危害預防指引','條號':'第4條','完整法規內文':'熱'}],{})
+ assert refs[0]['ai_texts']==['熱'] and refs[0]['official_url'].startswith('https://www.osha.gov.tw/')
+ assert detail_identity(details[-1])==('營造安全衛生設施標準','17')
+def repair_laws(out:Path,write:bool=True)->dict:
+ """Rewrite citation cards in place. Photos, hazard judgments and expert groups stay as published."""
+ check_parser()
+ paths=sorted((out/'data/cases').glob('*.json'))
+ cases=[json.loads(path.read_text(encoding='utf-8')) for path in paths]
+ catalog=catalog_from_details(detail for case in cases for detail in case.get('ai_law_details') or [])
+ stats=Counter();samples=[]
+ for case in cases:
+  for hazard in case.get('hazards') or []:
+   original=hazard.get('law_text') or ''
+   refs,unresolved=split_refs(original,case.get('ai_law_details') or [],catalog)
+   if not refs and not citation_present(original):
+    if original.strip():stats['cleared_placeholders']+=1
+    hazard['law_text']=''
+   hazard['laws']=refs
+   stats['law_cards']+=len(refs)
+   stats['cards_without_text']+=sum(not ref['ai_texts'] for ref in refs)
+   stats['unresolved']+=len(unresolved)
+   if unresolved and len(samples)<12:samples.append({'photo':case['id'],'hazard':hazard['id'],'text':original,'unresolved':unresolved})
+  stats['hazards']+=len(case.get('hazards') or [])
+ if write:
+  for path,case in zip(paths,cases):write_json(path,case)
+  write_json(out/'docs/law-display-repair.json',{'cleared_placeholders':stats['cleared_placeholders'],'law_cards':stats['law_cards'],
+   'cards_without_text':stats['cards_without_text'],'unresolved':stats['unresolved'],'samples':samples,
+   'note':'Citation display only. Hazard identification and expert assignments were not changed.'})
+ return {'photos':len(cases),'hazards':stats['hazards'],'law_cards':stats['law_cards'],'cards_without_text':stats['cards_without_text'],
+  'cleared_placeholders':stats['cleared_placeholders'],'unresolved':stats['unresolved'],'samples':samples}
 if __name__=='__main__':
  sys.stdout.reconfigure(encoding='utf-8')
  parser=argparse.ArgumentParser()
@@ -219,8 +319,12 @@ if __name__=='__main__':
  parser.add_argument('--images',type=Path,default=DEFAULT_PROJECT.parents[1]/'危害辨識測試_330')
  parser.add_argument('--output',type=Path,default=DEFAULT_PROJECT)
  parser.add_argument('--reassign',action='store_true')
+ parser.add_argument('--repair-laws',action='store_true')
+ parser.add_argument('--dry-run',action='store_true')
  args=parser.parse_args()
- if args.reassign:
+ if args.repair_laws:
+  print(json.dumps(repair_laws(args.output,write=not args.dry_run),ensure_ascii=False,indent=2))
+ elif args.reassign:
   loads=reassign(args.output)
   version=json.loads((args.output/'data/manifest.json').read_text(encoding='utf-8'))['assignment_version']
   print(json.dumps({'assignment_version':version,'loads':loads},ensure_ascii=False,indent=2))

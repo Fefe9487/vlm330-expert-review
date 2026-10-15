@@ -21,7 +21,9 @@ for entry in m['photos']:
  for h in p['hazards']:
   assert len({v['id'] for v in h['laws']})==len(h['laws'])
   assert len({v['id'] for v in h['cases']})==len(h['cases'])
-  assert all(l['official_url'].startswith('https://law.moj.gov.tw/') for l in h['laws'])
+  assert all(l['law_name'] and l['article'] and not re.fullmatch(r'之\d+',l['label']) for l in h['laws'])
+  assert all(l['official_url'].startswith(('https://law.moj.gov.tw/','https://www.osha.gov.tw/')) for l in h['laws'])
+  assert all(l['official_link_is_specific']==('flno=' in l['official_url']) for l in h['laws'])
  hazards+=len(p['hazards']);cases+=sum(len(h['cases']) for h in p['hazards']);laws+=sum(len(h['laws']) for h in p['hazards'])
 assert hazards==m['hazard_count']==1285
 assert cases==m['case_reference_count']==2375
