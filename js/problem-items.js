@@ -55,6 +55,31 @@ export function problemPickerHTML(photo,review,field){
  const options=problemOptions(photo,field),selected=selectedProblems(review,field),disabled=review.status==='submitted',required=review[field]==='inappropriate',word=problemReasonLabel(field);
  return `<div class="problem-picker"><div class="problem-picker-heading"><strong>哪些項目有問題？</strong><span>已勾 ${selected.length} 項</span></div><p class="muted">${required?`可複選。選了${word}，勾選的每一項都要寫原因。`:'可複選。勾選後可寫這項的問題，也可留空。'}</p><div class="problem-options">${options.map(option=>{const preview=option.label.length>100?option.label.slice(0,100)+'…':option.label,checked=selected.includes(option.id);return `<div class="problem-option"><label><input type="checkbox" data-problem-field="${field}" value="${e(option.id)}" ${checked?'checked':''} ${disabled?'disabled':''}><span>${e(preview)}</span></label>${option.target?`<button type="button" class="text-button" data-problem-target="${e(option.target)}" aria-label="查看 ${e(preview)} 的完整內容">查看</button>`:''}${checked?`<label class="problem-note${required?' is-required':''}"><span>${required?'原因（必填）':'這項的問題'}</span><textarea data-problem-note="${field}" data-problem-id="${e(option.id)}" rows="2" maxlength="${PROBLEM_NOTE_LIMIT}" ${required?'required aria-required="true"':''} placeholder="${required?`請寫這項${word}的原因。`:'這項哪裡有問題？可留空。'}">${e(problemNote(review,field,option.id))}</textarea></label>`:''}</div>`;}).join('')}</div></div>`;
 }
+export const JUDGMENT_FIELDS=['hazard_accuracy','completeness','law_appropriateness','case_appropriateness'];
+export const JUDGMENT_NOTE_LIMIT=1000;
+export const emptyJudgmentNotes=()=>Object.fromEntries(JUDGMENT_FIELDS.map(field=>[field,'']));
+export function judgmentWord(field){return field==='completeness'?'無法判斷':'資訊不足';}
+export function judgmentNote(review,field){const text=review.judgment_notes?.[field];return typeof text==='string'?text:'';}
+export function setJudgmentNote(review,field,text){
+ if(!JUDGMENT_FIELDS.includes(field)||review[field]!=='insufficient'||typeof text!=='string'||text.length>JUDGMENT_NOTE_LIMIT)return false;
+ review.judgment_notes??=emptyJudgmentNotes();review.judgment_notes[field]=text;return true;
+}
+export function validateJudgmentNotes(review){
+ if(review.judgment_notes!==undefined&&(!review.judgment_notes||typeof review.judgment_notes!=='object'||Array.isArray(review.judgment_notes)||Object.keys(review.judgment_notes).some(key=>!JUDGMENT_FIELDS.includes(key))))return [{path:'identity',message:'資訊不足的說明格式不正確。'}];
+ const errors=[];
+ for(const field of JUDGMENT_FIELDS){
+  if(review[field]!=='insufficient')continue;
+  const text=judgmentNote(review,field);
+  if(!text.trim())errors.push({path:field,message:`選了${judgmentWord(field)}，請說明原因。`});
+  else if(text.length>JUDGMENT_NOTE_LIMIT)errors.push({path:field,message:`${judgmentWord(field)}的說明請控制在 1,000 字內。`});
+ }
+ return errors;
+}
+export function judgmentNoteHTML(review,field){
+ if(review[field]!=='insufficient')return '';
+ const word=judgmentWord(field);
+ return `<label class="judgment-note"><span>請說明為什麼${word}（必填）</span><textarea data-judgment-note="${field}" rows="2" maxlength="${JUDGMENT_NOTE_LIMIT}" required aria-required="true" placeholder="請寫看不出哪一項事實。">${e(judgmentNote(review,field))}</textarea></label>`;
+}
 export function problemSummary(review,photo,field){
  if(!needsProblemSelection(review[field]))return '';
  const labels=new Map(problemOptions(photo,field).map(option=>[option.id,option.label]));

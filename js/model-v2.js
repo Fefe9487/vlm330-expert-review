@@ -1,6 +1,6 @@
-import {emptyProblemItems,emptyProblemNotes,validateProblemItems,validateProblemReasons,problemSummary,PROBLEM_FIELDS,PROBLEM_NOTE_LIMIT} from './problem-items.js';
+import {emptyProblemItems,emptyProblemNotes,emptyJudgmentNotes,validateProblemItems,validateProblemReasons,validateJudgmentNotes,problemSummary,PROBLEM_FIELDS,PROBLEM_NOTE_LIMIT,JUDGMENT_FIELDS,JUDGMENT_NOTE_LIMIT} from './problem-items.js';
 import {MISSED_HAZARD_TAXONOMY,validateMissedHazards,missedEntries,missedCsvValues} from './missed-hazards.js';
-export const APP_VERSION='2.4.0';
+export const APP_VERSION='2.5.0';
 export const VERDICTS=['appropriate','partial','inappropriate','insufficient'];
 export const VERDICT_LABELS={appropriate:'適當',partial:'部分適當',inappropriate:'不適當',insufficient:'資訊不足',not_provided:'未提供案例'};
 export const COMPLETENESS_LABELS={no_misses:'未發現漏報',has_misses:'有漏報',insufficient:'無法判斷'};
@@ -13,7 +13,7 @@ export function validateAssignments(m){
  if(seen.size!==330||known.size!==330)throw new Error('照片分組未涵蓋全部 330 張。');return m;
 }
 export function assignedPhotos(m,expert){const byId=new Map(m.photos.map(p=>[p.id,p]));return (m.assignments[expert]||[]).map(id=>byId.get(id));}
-export function createReview(photo,expert,m){return {schema_version:2,dataset_id:photo.dataset_id,assignment_version:m.assignment_version,expert_id:expert,photo_id:photo.id,image_sha256:photo.image_sha256,status:'draft',revision:0,created_at:new Date().toISOString(),updated_at:null,submitted_at:null,hazard_accuracy:'',completeness:'',law_appropriateness:'',case_appropriateness:photo.hazards.some(h=>h.cases.length)?'':'not_provided',problem_items:emptyProblemItems(),problem_notes:emptyProblemNotes(),missed_hazard_taxonomy:MISSED_HAZARD_TAXONOMY,missed_hazards:[],note:''};}
+export function createReview(photo,expert,m){return {schema_version:2,dataset_id:photo.dataset_id,assignment_version:m.assignment_version,expert_id:expert,photo_id:photo.id,image_sha256:photo.image_sha256,status:'draft',revision:0,created_at:new Date().toISOString(),updated_at:null,submitted_at:null,hazard_accuracy:'',completeness:'',law_appropriateness:'',case_appropriateness:photo.hazards.some(h=>h.cases.length)?'':'not_provided',problem_items:emptyProblemItems(),problem_notes:emptyProblemNotes(),judgment_notes:emptyJudgmentNotes(),missed_hazard_taxonomy:MISSED_HAZARD_TAXONOMY,missed_hazards:[],note:''};}
 export function validateReview(r,p,m){
  const errors=[],add=(path,message)=>errors.push({path,message});
  if(!r||r.schema_version!==2||r.dataset_id!==p.dataset_id||r.photo_id!==p.id||r.image_sha256!==p.image_sha256){add('identity','評分與照片版本不一致。');return errors;}
@@ -24,10 +24,11 @@ export function validateReview(r,p,m){
  if(p.hazards.some(h=>h.cases.length)){if(!VERDICTS.includes(r.case_appropriateness))add('case_appropriateness','請整體評估職災案例。');}
  else if(r.case_appropriateness!=='not_provided')add('case_appropriateness','AI 未提供案例，請重新載入這張照片。');
  const problemErrors=validateProblemItems(r,p);errors.push(...problemErrors);if(!problemErrors.length)errors.push(...validateProblemReasons(r));
+ errors.push(...validateJudgmentNotes(r));
  errors.push(...validateMissedHazards(r,true));
  if(typeof r.note!=='string'||r.note.length>5000)add('note','補充意見請控制在 5,000 字內。');return errors;
 }
-export function isTouched(r){return Boolean(r.hazard_accuracy||r.completeness||r.law_appropriateness||(r.case_appropriateness&&r.case_appropriateness!=='not_provided')||r.note||PROBLEM_FIELDS.some(field=>r.problem_items?.[field]?.length||Object.values(r.problem_notes?.[field]||{}).some(text=>typeof text==='string'&&text.trim()))||missedEntries(r).length);}
+export function isTouched(r){return Boolean(r.hazard_accuracy||r.completeness||r.law_appropriateness||(r.case_appropriateness&&r.case_appropriateness!=='not_provided')||r.note||PROBLEM_FIELDS.some(field=>r.problem_items?.[field]?.length||Object.values(r.problem_notes?.[field]||{}).some(text=>typeof text==='string'&&text.trim()))||JUDGMENT_FIELDS.some(field=>typeof r.judgment_notes?.[field]==='string'&&r.judgment_notes[field].trim())||missedEntries(r).length);}
 export function recordKey(r){return `${r.dataset_id}|${r.expert_id}|${r.photo_id}`;}
 export function makeBundle(m,expert,records,mode='production'){
  const ids=m.assignments[expert];return {format:'vlm330-expert-review',schema_version:2,app_version:APP_VERSION,mode,dataset_id:m.id,dataset_fingerprint:m.fingerprint,assignment_version:m.assignment_version,assigned_photo_ids:[...ids],expert_id:expert,exported_at:new Date().toISOString(),photo_count:ids.length,dataset_photo_count:m.photo_count,records:records.filter(r=>r.expert_id===expert&&ids.includes(r.photo_id))};
@@ -55,6 +56,7 @@ export function validateBundle(b,m,mode='production'){
   const missedErrors=validateMissedHazards(r,r.status==='submitted');if(missedErrors.length)throw new Error(missedErrors[0].message);
   if(r.problem_items!==undefined){if(!r.problem_items||typeof r.problem_items!=='object'||Array.isArray(r.problem_items)||Object.keys(r.problem_items).some(key=>!PROBLEM_FIELDS.includes(key)))throw new Error('備份的問題項目格式不正確。');for(const field of PROBLEM_FIELDS){const ids=r.problem_items[field]??[];if(!Array.isArray(ids)||ids.length>500||ids.some(id=>typeof id!=='string'||id.length>80)||new Set(ids).size!==ids.length)throw new Error('備份的問題項目格式不正確。');}}
   if(r.problem_notes!==undefined){if(!r.problem_notes||typeof r.problem_notes!=='object'||Array.isArray(r.problem_notes)||Object.keys(r.problem_notes).some(key=>!PROBLEM_FIELDS.includes(key)))throw new Error('備份的問題說明格式不正確。');for(const field of PROBLEM_FIELDS){const notes=r.problem_notes[field]??{};if(!notes||typeof notes!=='object'||Array.isArray(notes)||Object.entries(notes).some(([id,text])=>typeof id!=='string'||id.length>80||typeof text!=='string'||!text||text.length>PROBLEM_NOTE_LIMIT))throw new Error('備份的問題說明格式不正確。');}}
+  if(r.judgment_notes!==undefined){if(!r.judgment_notes||typeof r.judgment_notes!=='object'||Array.isArray(r.judgment_notes)||Object.keys(r.judgment_notes).some(key=>!JUDGMENT_FIELDS.includes(key)))throw new Error('備份的判斷說明格式不正確。');for(const field of JUDGMENT_FIELDS){const text=r.judgment_notes[field]??'';if(typeof text!=='string'||text.length>JUDGMENT_NOTE_LIMIT)throw new Error('備份的判斷說明格式不正確。');}}
  }return b;
 }
 export function csvCell(value){let s=String(value??'');if(/^\s*[=+\-@]|^[\t\r\n]/.test(s))s="'"+s;return `"${s.replaceAll('"','""')}"`;}
