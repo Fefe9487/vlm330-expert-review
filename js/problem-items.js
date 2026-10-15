@@ -39,10 +39,21 @@ export function validateProblemItems(review,photo){
  }
  return errors;
 }
+export function problemReasonLabel(field){return field==='hazard_accuracy'?'不正確':'不適當';}
+export function validateProblemReasons(review){
+ if(!review?.problem_items||typeof review.problem_items!=='object'||Array.isArray(review.problem_items))return [];
+ const errors=[];
+ for(const field of PROBLEM_FIELDS){
+  if(review[field]!=='inappropriate')continue;
+  const values=selectedProblems(review,field),word=problemReasonLabel(field);
+  if(!values.length||values.some(id=>!problemNote(review,field,id).trim()))errors.push({path:field,message:`選了${word}，請勾出有問題的項目，並在每一項寫原因。`});
+ }
+ return errors;
+}
 export function problemPickerHTML(photo,review,field){
  if(!needsProblemSelection(review[field]))return '';
- const options=problemOptions(photo,field),selected=selectedProblems(review,field),disabled=review.status==='submitted';
- return `<div class="problem-picker"><div class="problem-picker-heading"><strong>哪些項目有問題？</strong><span>已勾 ${selected.length} 項</span></div><p class="muted">可複選。勾選後可寫這項的問題，也可留空。</p><div class="problem-options">${options.map(option=>{const preview=option.label.length>100?option.label.slice(0,100)+'…':option.label,checked=selected.includes(option.id);return `<div class="problem-option"><label><input type="checkbox" data-problem-field="${field}" value="${e(option.id)}" ${checked?'checked':''} ${disabled?'disabled':''}><span>${e(preview)}</span></label>${option.target?`<button type="button" class="text-button" data-problem-target="${e(option.target)}" aria-label="查看 ${e(preview)} 的完整內容">查看</button>`:''}${checked?`<label class="problem-note"><span>這項的問題</span><textarea data-problem-note="${field}" data-problem-id="${e(option.id)}" rows="2" maxlength="${PROBLEM_NOTE_LIMIT}" placeholder="這項哪裡有問題？可留空。">${e(problemNote(review,field,option.id))}</textarea></label>`:''}</div>`;}).join('')}</div></div>`;
+ const options=problemOptions(photo,field),selected=selectedProblems(review,field),disabled=review.status==='submitted',required=review[field]==='inappropriate',word=problemReasonLabel(field);
+ return `<div class="problem-picker"><div class="problem-picker-heading"><strong>哪些項目有問題？</strong><span>已勾 ${selected.length} 項</span></div><p class="muted">${required?`可複選。選了${word}，勾選的每一項都要寫原因。`:'可複選。勾選後可寫這項的問題，也可留空。'}</p><div class="problem-options">${options.map(option=>{const preview=option.label.length>100?option.label.slice(0,100)+'…':option.label,checked=selected.includes(option.id);return `<div class="problem-option"><label><input type="checkbox" data-problem-field="${field}" value="${e(option.id)}" ${checked?'checked':''} ${disabled?'disabled':''}><span>${e(preview)}</span></label>${option.target?`<button type="button" class="text-button" data-problem-target="${e(option.target)}" aria-label="查看 ${e(preview)} 的完整內容">查看</button>`:''}${checked?`<label class="problem-note${required?' is-required':''}"><span>${required?'原因（必填）':'這項的問題'}</span><textarea data-problem-note="${field}" data-problem-id="${e(option.id)}" rows="2" maxlength="${PROBLEM_NOTE_LIMIT}" ${required?'required aria-required="true"':''} placeholder="${required?`請寫這項${word}的原因。`:'這項哪裡有問題？可留空。'}">${e(problemNote(review,field,option.id))}</textarea></label>`:''}</div>`;}).join('')}</div></div>`;
 }
 export function problemSummary(review,photo,field){
  if(!needsProblemSelection(review[field]))return '';
