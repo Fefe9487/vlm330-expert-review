@@ -1,7 +1,9 @@
 import {escapeHTML as e} from './content.js';
 export const PROBLEM_FIELDS=['hazard_accuracy','law_appropriateness','case_appropriateness'];
+export const PROBLEM_NOTE_LIMIT=500;
 export const needsProblemSelection=value=>value==='partial'||value==='inappropriate';
 export const emptyProblemItems=()=>Object.fromEntries(PROBLEM_FIELDS.map(field=>[field,[]]));
+export const emptyProblemNotes=()=>Object.fromEntries(PROBLEM_FIELDS.map(field=>[field,{}]));
 export function problemOptions(photo,field){
  const hazards=photo.hazards||[];
  if(field==='hazard_accuracy')return [{id:'description',label:'AI 整體描述',target:'ai-description'},...hazards.map((h,i)=>({id:h.id,label:`危害 ${i+1}：${h.type}`,target:`hazard-${h.id}`}))];
@@ -10,31 +12,40 @@ export function problemOptions(photo,field){
  return [];
 }
 export function selectedProblems(review,field){return Array.isArray(review.problem_items?.[field])?review.problem_items[field]:[];}
+export function problemNote(review,field,id){const text=review.problem_notes?.[field]?.[id];return typeof text==='string'?text:'';}
 export function setOverallVerdict(review,field,value){
  review[field]=value;
- if(PROBLEM_FIELDS.includes(field)){review.problem_items??=emptyProblemItems();if(!needsProblemSelection(value))review.problem_items[field]=[];}
+ if(PROBLEM_FIELDS.includes(field)){review.problem_items??=emptyProblemItems();if(!needsProblemSelection(value)){review.problem_items[field]=[];if(review.problem_notes?.[field])review.problem_notes[field]={};}}
 }
 export function toggleProblem(review,field,id,checked,photo){
  if(!PROBLEM_FIELDS.includes(field)||!needsProblemSelection(review[field])||!problemOptions(photo,field).some(option=>option.id===id))return false;
- review.problem_items??=emptyProblemItems();const values=selectedProblems(review,field).filter(value=>value!==id);if(checked)values.push(id);review.problem_items[field]=values;return true;
+ review.problem_items??=emptyProblemItems();const values=selectedProblems(review,field).filter(value=>value!==id);if(checked)values.push(id);else if(review.problem_notes?.[field])delete review.problem_notes[field][id];review.problem_items[field]=values;return true;
+}
+export function setProblemNote(review,field,id,text,photo){
+ if(typeof text!=='string'||text.length>PROBLEM_NOTE_LIMIT||!PROBLEM_FIELDS.includes(field)||!needsProblemSelection(review[field])||!selectedProblems(review,field).includes(id)||!problemOptions(photo,field).some(option=>option.id===id))return false;
+ review.problem_notes??=emptyProblemNotes();review.problem_notes[field]??={};if(text)review.problem_notes[field][id]=text;else delete review.problem_notes[field][id];return true;
 }
 export function validateProblemItems(review,photo){
- if(review.problem_items===undefined)return [];
+ if(review.problem_items===undefined&&review.problem_notes===undefined)return [];
  const fields=review.problem_items,errors=[],add=field=>errors.push({path:field,message:'有問題的項目與這張照片或整體判斷不相符。'});
  if(!fields||typeof fields!=='object'||Array.isArray(fields)||Object.keys(fields).some(key=>!PROBLEM_FIELDS.includes(key))){add('identity');return errors;}
+ const notes=review.problem_notes;
+ if(notes!==undefined&&(!notes||typeof notes!=='object'||Array.isArray(notes)||Object.keys(notes).some(key=>!PROBLEM_FIELDS.includes(key)))){add('identity');return errors;}
  for(const field of PROBLEM_FIELDS){
   const values=fields[field]??[],allowed=new Set(problemOptions(photo,field).map(option=>option.id));
-  if(!Array.isArray(values)||values.some(id=>typeof id!=='string'||!allowed.has(id))||new Set(values).size!==values.length||(values.length&&!needsProblemSelection(review[field])))add(field);
+  if(!Array.isArray(values)||values.some(id=>typeof id!=='string'||!allowed.has(id))||new Set(values).size!==values.length||(values.length&&!needsProblemSelection(review[field]))){add(field);continue;}
+  const itemNotes=notes?.[field]??{};
+  if(!itemNotes||typeof itemNotes!=='object'||Array.isArray(itemNotes)||Object.entries(itemNotes).some(([id,text])=>typeof text!=='string'||!text||text.length>PROBLEM_NOTE_LIMIT||!values.includes(id)))add(field);
  }
  return errors;
 }
 export function problemPickerHTML(photo,review,field){
  if(!needsProblemSelection(review[field]))return '';
  const options=problemOptions(photo,field),selected=selectedProblems(review,field),disabled=review.status==='submitted';
- return `<div class="problem-picker"><div class="problem-picker-heading"><strong>哪些項目有問題？</strong><span>已勾 ${selected.length} 項</span></div><p class="muted">可複選，說明仍可留空。</p><div class="problem-options">${options.map(option=>{const preview=option.label.length>100?option.label.slice(0,100)+'…':option.label;return `<div class="problem-option"><label><input type="checkbox" data-problem-field="${field}" value="${e(option.id)}" ${selected.includes(option.id)?'checked':''} ${disabled?'disabled':''}><span>${e(preview)}</span></label>${option.target?`<button type="button" class="text-button" data-problem-target="${e(option.target)}" aria-label="查看 ${e(preview)} 的完整內容">查看</button>`:''}</div>`;}).join('')}</div></div>`;
+ return `<div class="problem-picker"><div class="problem-picker-heading"><strong>哪些項目有問題？</strong><span>已勾 ${selected.length} 項</span></div><p class="muted">可複選。勾選後可寫這項的問題，也可留空。</p><div class="problem-options">${options.map(option=>{const preview=option.label.length>100?option.label.slice(0,100)+'…':option.label,checked=selected.includes(option.id);return `<div class="problem-option"><label><input type="checkbox" data-problem-field="${field}" value="${e(option.id)}" ${checked?'checked':''} ${disabled?'disabled':''}><span>${e(preview)}</span></label>${option.target?`<button type="button" class="text-button" data-problem-target="${e(option.target)}" aria-label="查看 ${e(preview)} 的完整內容">查看</button>`:''}${checked?`<label class="problem-note"><span>這項的問題</span><textarea data-problem-note="${field}" data-problem-id="${e(option.id)}" rows="2" maxlength="${PROBLEM_NOTE_LIMIT}" placeholder="這項哪裡有問題？可留空。">${e(problemNote(review,field,option.id))}</textarea></label>`:''}</div>`;}).join('')}</div></div>`;
 }
 export function problemSummary(review,photo,field){
  if(!needsProblemSelection(review[field]))return '';
  const labels=new Map(problemOptions(photo,field).map(option=>[option.id,option.label]));
- return selectedProblems(review,field).map(id=>`${labels.get(id)||id} [${id}]`).join('\n');
+ return selectedProblems(review,field).map(id=>{const note=problemNote(review,field,id).trim();return `${labels.get(id)||id} [${id}]${note?`：${note}`:''}`;}).join('\n');
 }

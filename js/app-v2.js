@@ -2,7 +2,7 @@ import {VERDICTS,VERDICT_LABELS,ACCURACY_LABELS,COMPLETENESS_LABELS,assignedPhot
 import * as legacyModel from './model.js';
 import {ReviewStore} from './storage.js';
 import {escapeHTML as e,reportHTML} from './content.js';
-import {problemPickerHTML,setOverallVerdict,toggleProblem,validateProblemItems,selectedProblems} from './problem-items.js';
+import {problemPickerHTML,setOverallVerdict,toggleProblem,setProblemNote,validateProblemItems} from './problem-items.js';
 import {missedEditorHTML,addMissedHazard,updateMissedHazard,removeMissedHazard} from './missed-hazards.js';
 
 const root=document.querySelector('#app'),params=new URLSearchParams(location.search),qa=params.get('qa')==='1',mode=qa?'qa':'production';
@@ -126,18 +126,19 @@ async function prepareImport(files){
 }
 async function confirmImport(replaceNewer){if(!importPending)return;const pending=importPending;importPending=null;document.querySelector('#import-dialog').close();try{const result=await (pending.legacy?legacyStore:store).importRecords(pending.records,replaceNewer);toast(`補入 ${result.inserted} 筆，更新 ${result.replaced} 筆，保留 ${result.skipped} 筆。`);state.review=null;state.photo=null;state.dirty=false;if(pending.legacy){await startExpert(pending.experts[0]);await renderProgress();}else await startExpert(pending.experts[0]);}catch(error){toast(error.message,true);}}
 function openDetail(title,body){document.querySelector('#detail-title').textContent=title;document.querySelector('#detail-body').innerHTML=body;document.querySelector('#detail-dialog').showModal();}
-function help(){openDetail('審閱說明',`<p>每位專家有固定的 30 張照片，先對照現場照片與 AI 的完整內容，再完成四項整體判斷。</p><ol><li>危害辨識：類型與情境理由是否符合照片，是否把推測當成事實。</li><li>危害完整性：是否仍有 AI 沒找出的危害。選有漏報時，可依 17 種危害新增漏報項目，選填情境或位置；同類型可登錄不同情境。</li><li>引用法規：名稱、條號、條文與適用情境是否正確；缺少應引用的法規也可判不適當。</li><li>職災案例：作業情境與致災機制是否能支持這張照片的危害；來源未能確認時可選資訊不足。</li></ol><p>選擇部分適當／不適當（或部分正確／不正確）時，可複選有問題的危害、法規或案例，點「查看」可定位完整內容。負面判斷與漏報不必逐項寫理由。若願意補充，可在唯一的意見欄簡述。改善措施、防護具與立即危險判定也可在此補充意見。</p><p>法規評估基準為 2026-10-08 測試日的有效版本。AI 提供的條文是待評估內容，官方連結供查核。</p><p>進度自動保存在此瀏覽器。完成 30 張後，請匯出 JSON 回傳；換裝置可匯入備份。專家代碼用於區分進度。</p>`);}
+function help(){openDetail('審閱說明',`<p>每位專家有固定的 30 張照片，先對照現場照片與 AI 的完整內容，再完成四項整體判斷。</p><ol><li>危害辨識：類型與情境理由是否符合照片，是否把推測當成事實。</li><li>危害完整性：是否仍有 AI 沒找出的危害。選有漏報時，可依 17 種危害新增漏報項目，選填情境或位置；同類型可登錄不同情境。</li><li>引用法規：名稱、條號、條文與適用情境是否正確；缺少應引用的法規也可判不適當。</li><li>職災案例：作業情境與致災機制是否能支持這張照片的危害；來源未能確認時可選資訊不足。</li></ol><p>選擇部分適當／不適當（或部分正確／不正確）時，可複選有問題的危害、法規或案例，勾選後可在該項下方寫問題，也可留空。點「查看」可定位完整內容。改善措施、防護具與立即危險判定可寫在最下方的補充意見。</p><p>法規評估基準為 2026-10-08 測試日的有效版本。AI 提供的條文是待評估內容，官方連結供查核。</p><p>進度自動保存在此瀏覽器。完成 30 張後，請匯出 JSON 回傳；換裝置可匯入備份。專家代碼用於區分進度。</p>`);}
 function openZoom(){if(!state.photo)return;zoom=1;const img=document.querySelector('#zoom-image');document.querySelector('#photo-dialog-title').textContent=state.photo.filename;img.onload=()=>setZoom(1);img.src=path(state.photo.image);img.alt=state.photo.filename+' 現場照片';document.querySelector('#photo-dialog').showModal();requestAnimationFrame(()=>setZoom(1));}
 function setZoom(value){zoom=Math.min(5,Math.max(.5,value));const stage=document.querySelector('#zoom-stage'),img=document.querySelector('#zoom-image');if(!img.naturalWidth)return;const fit=Math.min((stage.clientWidth-28)/img.naturalWidth,(stage.clientHeight-28)/img.naturalHeight);img.style.width=Math.round(img.naturalWidth*fit*zoom)+'px';img.style.height=Math.round(img.naturalHeight*fit*zoom)+'px';document.querySelector('#zoom-value').textContent=Math.round(zoom*100)+'%';if(zoom===1){stage.scrollTop=0;stage.scrollLeft=0;}}
 
 root.addEventListener('input',event=>{const el=event.target;if(!state.review||state.review.status==='submitted'||state.loading)return;
- if(el.dataset.missedField==='description'&&updateMissedHazard(state.review,el.dataset.missedId,'description',el.value))markChanged();
+ if(el.dataset.problemNote&&setProblemNote(state.review,el.dataset.problemNote,el.dataset.problemId,el.value,state.photo))markChanged();
+ else if(el.dataset.missedField==='description'&&updateMissedHazard(state.review,el.dataset.missedId,'description',el.value))markChanged();
  else if(el.dataset.field==='note'){state.review.note=el.value;markChanged();}
 });
 root.addEventListener('change',event=>{const el=event.target;if(el.id==='photo-select'){void openPhoto(el.value);return;}if(!state.review||state.review.status==='submitted'||state.loading)return;
  if(el.type==='radio'&&el.dataset.field){setOverallVerdict(state.review,el.dataset.field,el.value);const picker=document.querySelector('#problems-'+el.dataset.field);if(picker)picker.innerHTML=el.dataset.field==='completeness'?missedEditorHTML(state.review):problemPickerHTML(state.photo,state.review,el.dataset.field);state.errors=state.errors.filter(err=>err.path!==el.dataset.field);showValidation();markChanged();}
  else if(el.dataset.missedField==='type'&&updateMissedHazard(state.review,el.dataset.missedId,'type',el.value)){state.errors=state.errors.filter(err=>err.path!=='completeness');showValidation();markChanged();}
- else if(el.type==='checkbox'&&el.dataset.problemField&&toggleProblem(state.review,el.dataset.problemField,el.value,el.checked,state.photo)){const count=document.querySelector('#problems-'+el.dataset.problemField+' .problem-picker-heading span');if(count)count.textContent=`已勾 ${selectedProblems(state.review,el.dataset.problemField).length} 項`;markChanged();}
+ else if(el.type==='checkbox'&&el.dataset.problemField&&toggleProblem(state.review,el.dataset.problemField,el.value,el.checked,state.photo)){const host=document.querySelector('#problems-'+el.dataset.problemField),scroll=host?.querySelector('.problem-options')?.scrollTop||0;if(host)host.innerHTML=problemPickerHTML(state.photo,state.review,el.dataset.problemField);const scroller=host?.querySelector('.problem-options');if(scroller)scroller.scrollTop=scroll;if(el.checked)host?.querySelector(`textarea[data-problem-id="${CSS.escape(el.value)}"]`)?.focus();markChanged();}
 });
 root.addEventListener('click',async event=>{
  const button=event.target.closest('button');if(!button||button.disabled)return;
