@@ -21,24 +21,30 @@ export function removeMissedHazard(review,id){
  if(review.status==='submitted'||review.completeness!=='has_misses')return false;
  const items=missedEntries(review),index=items.findIndex(item=>item.id===id);if(index<0)return false;items.splice(index,1);return true;
 }
-export function validateMissedHazards(review,requireComplete=false){
+export function validateMissedHazards(review,requireComplete=false,requireExplanation=false){
  if(review.missed_hazards===undefined)return [];
- const errors=[],add=message=>errors.push({path:'completeness',message}),items=review.missed_hazards;
+ const errors=[],add=(message,code)=>errors.push({path:'completeness',message,...(code?{code}:{})}),items=review.missed_hazards;
  if(review.missed_hazard_taxonomy!==MISSED_HAZARD_TAXONOMY){add('漏報的危害分類版本不相符。');return errors;}
  if(!Array.isArray(items)||items.length>MAX_MISSED_HAZARDS){add('漏報項目格式或筆數不正確。');return errors;}
  const seen=new Set();
+ let explained=0;
  for(const [index,item] of items.entries()){
   if(!item||typeof item.id!=='string'||!/^m-[a-zA-Z0-9_-]{1,64}$/.test(item.id)||seen.has(item.id)){add('漏報項目的識別碼不正確或重複。');continue;}
   seen.add(item.id);
   if(item.type!==''&&!MISSED_HAZARD_TYPES.includes(item.type))add(`漏報項目 ${index+1} 的危害類型不在 17 類清單中。`);
   if(typeof item.description!=='string'||item.description.length>2000)add(`漏報項目 ${index+1} 的情境說明格式不正確。`);
   if(requireComplete&&review.completeness==='has_misses'&&item.type==='')add(`請選擇漏報項目 ${index+1} 的危害類型，或移除這筆空白項目。`);
+  if(requireExplanation&&review.completeness==='has_misses'&&MISSED_HAZARD_TYPES.includes(item.type)){
+   if(typeof item.description==='string'&&item.description.trim())explained++;
+   else add(`請寫漏報項目 ${index+1} 的情境說明。`,'explanation');
+  }
  }
+ if(requireExplanation&&review.completeness==='has_misses'&&explained===0&&!errors.some(error=>error.code==='explanation'))add('選了有漏報，請至少補登一筆危害，並寫情境說明。','explanation');
  return errors;
 }
 export function missedEditorHTML(review){
  const items=missedEntries(review),submitted=review.status==='submitted';
  if(review.completeness!=='has_misses')return items.length?`<p class="missed-draft-note">已保留 ${items.length} 筆補登草稿；選「有漏報」可繼續編輯。</p>`:'';
- return `<section class="missed-editor" aria-label="額外漏報危害"><div class="missed-heading"><strong>補登 AI 未找出的危害</strong><span>${items.length} 筆</span></div><p class="muted">從 17 種危害選擇，可新增多筆；情境說明選填。</p><div class="missed-list">${items.map((item,index)=>`<div class="missed-item" data-missed-row="${e(item.id)}"><div class="missed-item-heading"><strong>漏報項目 ${index+1}</strong>${submitted?'':`<button type="button" class="text-button" data-remove-missed="${e(item.id)}" aria-label="移除漏報項目 ${index+1}">移除</button>`}</div><label for="missed-type-${e(item.id)}">危害類型</label><select id="missed-type-${e(item.id)}" data-missed-id="${e(item.id)}" data-missed-field="type" ${submitted?'disabled':''}><option value="">請選擇危害類型</option>${MISSED_HAZARD_TYPES.map(type=>`<option value="${e(type)}" ${item.type===type?'selected':''}>${e(type)}</option>`).join('')}</select><label for="missed-description-${e(item.id)}">漏報情境或位置 <span class="muted">（選填）</span></label><textarea id="missed-description-${e(item.id)}" data-missed-id="${e(item.id)}" data-missed-field="description" rows="2" maxlength="2000" placeholder="例如：右側電箱有裸露帶電部位。可留空。" ${submitted?'disabled':''}>${e(item.description)}</textarea></div>`).join('')}</div>${submitted?'':`<button type="button" data-action="add-missed" ${items.length>=MAX_MISSED_HAZARDS?'disabled':''}>＋ 新增漏報項目</button>`}</section>`;
+ return `<section class="missed-editor" aria-label="額外漏報危害"><div class="missed-heading"><strong>補登 AI 未找出的危害</strong><span>${items.length} 筆</span></div><p class="muted">從 17 種危害選擇，可新增多筆。每一筆都要寫情境說明。</p><div class="missed-list">${items.map((item,index)=>`<div class="missed-item" data-missed-row="${e(item.id)}"><div class="missed-item-heading"><strong>漏報項目 ${index+1}</strong>${submitted?'':`<button type="button" class="text-button" data-remove-missed="${e(item.id)}" aria-label="移除漏報項目 ${index+1}">移除</button>`}</div><label for="missed-type-${e(item.id)}">危害類型</label><select id="missed-type-${e(item.id)}" data-missed-id="${e(item.id)}" data-missed-field="type" ${submitted?'disabled':''}><option value="">請選擇危害類型</option>${MISSED_HAZARD_TYPES.map(type=>`<option value="${e(type)}" ${item.type===type?'selected':''}>${e(type)}</option>`).join('')}</select><label for="missed-description-${e(item.id)}">漏報情境或位置 <span class="muted">（必填）</span></label><textarea id="missed-description-${e(item.id)}" data-missed-id="${e(item.id)}" data-missed-field="description" rows="2" maxlength="2000" placeholder="請寫這項漏報的位置或情境。" ${submitted?'disabled':'required aria-required="true"'}>${e(item.description)}</textarea></div>`).join('')}</div>${submitted?'':`<button type="button" data-action="add-missed" ${items.length>=MAX_MISSED_HAZARDS?'disabled':''}>＋ 新增漏報項目</button>`}</section>`;
 }
 export function missedCsvValues(review){const items=activeMissedEntries(review);return [items.length,[...new Set(items.map(item=>item.type))].join('、'),items.map((item,index)=>`漏報 ${index+1}：${item.type}${item.description?'；'+item.description:''} [${item.id}]`).join('\n')];}

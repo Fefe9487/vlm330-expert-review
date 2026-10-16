@@ -1,6 +1,6 @@
 import {emptyProblemItems,emptyProblemNotes,emptyJudgmentNotes,validateProblemItems,validateProblemReasons,validateJudgmentNotes,problemSummary,PROBLEM_FIELDS,PROBLEM_NOTE_LIMIT,JUDGMENT_FIELDS,JUDGMENT_NOTE_LIMIT} from './problem-items.js';
 import {MISSED_HAZARD_TAXONOMY,validateMissedHazards,missedEntries,missedCsvValues} from './missed-hazards.js';
-export const APP_VERSION='2.5.0';
+export const APP_VERSION='2.6.0';
 export const VERDICTS=['appropriate','partial','inappropriate','insufficient'];
 export const VERDICT_LABELS={appropriate:'適當',partial:'部分適當',inappropriate:'不適當',insufficient:'資訊不足',not_provided:'未提供案例'};
 export const COMPLETENESS_LABELS={no_misses:'未發現漏報',has_misses:'有漏報',insufficient:'無法判斷'};
@@ -25,7 +25,7 @@ export function validateReview(r,p,m){
  else if(r.case_appropriateness!=='not_provided')add('case_appropriateness','AI 未提供案例，請重新載入這張照片。');
  const problemErrors=validateProblemItems(r,p);errors.push(...problemErrors);if(!problemErrors.length)errors.push(...validateProblemReasons(r));
  errors.push(...validateJudgmentNotes(r));
- errors.push(...validateMissedHazards(r,true));
+ errors.push(...validateMissedHazards(r,true,true));
  if(typeof r.note!=='string'||r.note.length>5000)add('note','補充意見請控制在 5,000 字內。');return errors;
 }
 export function isTouched(r){return Boolean(r.hazard_accuracy||r.completeness||r.law_appropriateness||(r.case_appropriateness&&r.case_appropriateness!=='not_provided')||r.note||PROBLEM_FIELDS.some(field=>r.problem_items?.[field]?.length||Object.values(r.problem_notes?.[field]||{}).some(text=>typeof text==='string'&&text.trim()))||JUDGMENT_FIELDS.some(field=>typeof r.judgment_notes?.[field]==='string'&&r.judgment_notes[field].trim())||missedEntries(r).length);}
